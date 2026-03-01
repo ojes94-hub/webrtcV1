@@ -16,7 +16,7 @@ func main() {
 	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./public/js"))))
 
 	log.Printf("webrtcV1 server listening on http://localhost%s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, nil))
+	log.Fatal(http.ListenAndServe(":8080","server.crt", "server.key", nil))
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
