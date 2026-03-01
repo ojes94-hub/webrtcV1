@@ -29,18 +29,34 @@ async function startCall() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             throw new Error('getUserMedia not supported or insecure context');
         }
+    const screenRatio = window.innerWidth / window.innerHeight;
 
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                width: { min: 640, ideal: 1280, max: 1920 },
-                height: { min: 480, ideal: 720, max: 1080 }
-            },
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+    const constraints = {
+    video: {
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 },
+        // This forces the stream to try and match the screen's shape
+        aspectRatio: { ideal: screenRatio }
+    },
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    }
+};
+
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        // localStream = await navigator.mediaDevices.getUserMedia({
+        //     video: {
+        //         width: { min: 640, ideal: 1280, max: 1920 },
+        //         height: { min: 480, ideal: 720, max: 1080 }
+        //     },
+        //     audio: {
+        //         echoCancellation: true,
+        //         noiseSuppression: true,
+        //         autoGainControl: true
+        //     }
+        // });
 
         localVideo.srcObject = localStream;
         updateStatus('Local media acquired');
