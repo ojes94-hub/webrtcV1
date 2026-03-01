@@ -8,7 +8,7 @@ body {
   flex-direction: column; 
   /* Fix: Use dvh for mobile browsers */
   height: 100vh; 
-  height: 100dvh; 
+  height: 100svh; 
   overflow: hidden; 
 }
 
