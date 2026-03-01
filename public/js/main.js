@@ -21,7 +21,24 @@ function updateStatus(message) {
 function updateConnectionState(state) {
     connectionStateEl.textContent = `Connection: ${state}`;
 }
+const zoomOutOneStep = async () => {
+    const [track] = localStream.getVideoTracks();
+    const settings = track.getSettings();
+    const capabilities = track.getCapabilities();
 
+    if (settings.zoom && capabilities.zoom) {
+        const currentZoom = settings.zoom;
+        const step = capabilities.zoom.step || 1; 
+        const minZoom = capabilities.zoom.min;
+
+        // Subtract one step, ensuring we don't go below the hardware minimum
+        const newZoom = Math.max(minZoom, currentZoom - step);
+
+        await track.applyConstraints({
+            advanced: [{ zoom: newZoom }]
+        });
+    }
+};
 async function startCall() {
     try {
         updateStatus('Getting camera and microphone access...');
@@ -44,25 +61,10 @@ async function startCall() {
         noiseSuppression: true,
         autoGainControl: true
     }
+    
+    
 };
-const zoomOutOneStep = async () => {
-    const [track] = localStream.getVideoTracks();
-    const settings = track.getSettings();
-    const capabilities = track.getCapabilities();
 
-    if (settings.zoom && capabilities.zoom) {
-        const currentZoom = settings.zoom;
-        const step = capabilities.zoom.step || 1; 
-        const minZoom = capabilities.zoom.min;
-
-        // Subtract one step, ensuring we don't go below the hardware minimum
-        const newZoom = Math.max(minZoom, currentZoom - step);
-
-        await track.applyConstraints({
-            advanced: [{ zoom: newZoom }]
-        });
-    }
-};
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
         // localStream = await navigator.mediaDevices.getUserMedia({
         //     video: {
@@ -88,6 +90,7 @@ const zoomOutOneStep = async () => {
         updateStatus(`Error: ${err.message}`);
         console.error(err);
     }
+    zoomOutOneStep();
 }
 
 function connectWebSocket() {
