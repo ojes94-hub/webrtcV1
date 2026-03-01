@@ -6,7 +6,9 @@ body {
   margin: 0; 
   display: flex; 
   flex-direction: column; 
+  /* Fix: Use dvh for mobile browsers */
   height: 100vh; 
+  height: 100dvh; 
   overflow: hidden; 
 }
 
@@ -16,16 +18,17 @@ body {
   overflow: hidden; 
 }
 
-/* 2. Video Grid Container */
+
 .video-grid {
   flex: 1;
+  min-height: 0; /* CRITICAL: Allows flex child to shrink properly */
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   grid-auto-rows: 200px;
   gap: 12px;
   padding: 12px;
   overflow-y: auto;
-  position: relative; /* Context for sticky items */
+  position: relative;
   scroll-behavior: smooth;
 }
 
@@ -215,8 +218,10 @@ body {
 .muted-text { color: #ff4757; }
 
 /* 7. Controls Bar */
+/* Update Section 7 */
 .controls-bar { 
   height: 80px; 
+  flex-shrink: 0; /* CRITICAL: Prevents mobile from squishing footer */
   display: flex; 
   justify-content: center; 
   align-items: center; 
@@ -224,6 +229,10 @@ body {
   background: #121212; 
   border-top: 1px solid #333; 
   padding: 0 16px; 
+  /* Fix: Handles the "Home Bar" on iPhones */
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: content-box;
+  z-index: 1000;
 }
 .icon-btn { 
   background: #2a2a2a; 
