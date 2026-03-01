@@ -35,6 +35,7 @@ async function startCall() {
     video: {
         width: { min: 640, ideal: 1280, max: 1920 },
         height: { min: 480, ideal: 720, max: 1080 },
+        zoom: true,
         // This forces the stream to try and match the screen's shape
         aspectRatio: { ideal: screenRatio }
     },
@@ -44,7 +45,24 @@ async function startCall() {
         autoGainControl: true
     }
 };
+const zoomOutOneStep = async () => {
+    const [track] = localStream.getVideoTracks();
+    const settings = track.getSettings();
+    const capabilities = track.getCapabilities();
 
+    if (settings.zoom && capabilities.zoom) {
+        const currentZoom = settings.zoom;
+        const step = capabilities.zoom.step || 1; 
+        const minZoom = capabilities.zoom.min;
+
+        // Subtract one step, ensuring we don't go below the hardware minimum
+        const newZoom = Math.max(minZoom, currentZoom - step);
+
+        await track.applyConstraints({
+            advanced: [{ zoom: newZoom }]
+        });
+    }
+};
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
         // localStream = await navigator.mediaDevices.getUserMedia({
         //     video: {
