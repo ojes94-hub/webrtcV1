@@ -9,9 +9,9 @@ const statusEl = document.getElementById('status');
 const connectionStateEl = document.getElementById('connectionState');
 const startBtn = document.getElementById('startBtn');
 const hangupBtn = document.getElementById('hangupBtn');
-
 let videoEnabled = true;
 let audioEnabled = true;
+let currentZoom = 1;
 
 function updateStatus(message) {
     statusEl.textContent = message;
@@ -21,22 +21,64 @@ function updateStatus(message) {
 function updateConnectionState(state) {
     connectionStateEl.textContent = `Connection: ${state}`;
 }
-const zoomOutOneStep = async () => {
+
+const zoomInOneStep = async () => {
+    if (!localStream) {
+        console.warn('No local stream available');
+        return;
+    }
     const [track] = localStream.getVideoTracks();
-    const settings = track.getSettings();
+    if (!track) return;
+
     const capabilities = track.getCapabilities();
+    if (!capabilities.zoom) {
+        updateStatus('Zoom not supported on this device');
+        return;
+    }
 
-    if (settings.zoom && capabilities.zoom) {
-        const currentZoom = settings.zoom;
-        const step = capabilities.zoom.step || 1; 
-        const minZoom = capabilities.zoom.min;
+    const step = capabilities.zoom.step || 0.1;
+    const maxZoom = capabilities.zoom.max || 4;
+    const newZoom = Math.min(maxZoom, currentZoom + step);
 
-        // Subtract one step, ensuring we don't go below the hardware minimum
-        const newZoom = Math.max(minZoom, currentZoom - step);
-
+    try {
         await track.applyConstraints({
             advanced: [{ zoom: newZoom }]
         });
+        currentZoom = newZoom;
+        updateStatus(`Zoom: ${newZoom.toFixed(2)}x`);
+    } catch (err) {
+        console.error('Zoom in failed:', err);
+        updateStatus('Zoom in failed');
+    }
+};
+
+const zoomOutOneStep = async () => {
+    if (!localStream) {
+        console.warn('No local stream available');
+        return;
+    }
+    const [track] = localStream.getVideoTracks();
+    if (!track) return;
+
+    const capabilities = track.getCapabilities();
+    if (!capabilities.zoom) {
+        updateStatus('Zoom not supported on this device');
+        return;
+    }
+
+    const step = capabilities.zoom.step || 0.1;
+    const minZoom = capabilities.zoom.min || 1;
+    const newZoom = Math.max(minZoom, currentZoom - step);
+
+    try {
+        await track.applyConstraints({
+            advanced: [{ zoom: newZoom }]
+        });
+        currentZoom = newZoom;
+        updateStatus(`Zoom: ${newZoom.toFixed(2)}x`);
+    } catch (err) {
+        console.error('Zoom out failed:', err);
+        updateStatus('Zoom out failed');
     }
 };
 async function startCall() {
@@ -52,7 +94,6 @@ async function startCall() {
     video: {
         width: { min: 640, ideal: 1280, max: 1920 },
         height: { min: 480, ideal: 720, max: 1080 },
-        zoom: true,
         // This forces the stream to try and match the screen's shape
         aspectRatio: { ideal: screenRatio }
     },
@@ -61,8 +102,6 @@ async function startCall() {
         noiseSuppression: true,
         autoGainControl: true
     }
-    
-    
 };
 
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -282,6 +321,7 @@ function hangupCall() {
     hangupBtn.disabled = true;
     videoEnabled = true;
     audioEnabled = true;
+    currentZoom = 1;
     document.getElementById('toggleVideoBtn').textContent = 'Camera Off';
     document.getElementById('toggleAudioBtn').textContent = 'Mic Off';
     updateStatus('Call ended');
