@@ -72,12 +72,20 @@ function connectWebSocket() {
                 clientId = msg.data.id;
                 updateStatus(`Joined as ${clientId}`);
                 for (const pid of msg.data.peers || []) {
+                    // when we ourselves join we always kick off offers to existing peers
                     await initiateOffer(pid);
                 }
                 break;
             case 'new-peer':
+                // only one of the two peers should initiate an offer to avoid glare
+                // we use a simple deterministic rule based on the peer IDs
                 if (msg.source !== clientId) {
-                    await initiateOffer(msg.source);
+                    // if our id is smaller we'll create the offer, otherwise wait for the other side
+                    if (clientId && clientId < msg.source) {
+                        await initiateOffer(msg.source);
+                    } else {
+                        console.log('new-peer received but not initiating (order rule)', msg.source);
+                    }
                 }
                 break;
             case 'offer':
@@ -122,6 +130,7 @@ function createPeerConnection(peerId) {
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
     pc.ontrack = (event) => {
+        console.log('ontrack for', peerId, 'streams', event.streams);
         let video = document.getElementById('remote_' + peerId);
         if (!video) {
             const box = document.createElement('div');
@@ -158,6 +167,12 @@ function createPeerConnection(peerId) {
 }
 
 async function initiateOffer(peerId) {
+    // avoid creating a second connection if one already exists
+    if (peerConnections[peerId] && peerConnections[peerId].connectionState !== 'closed') {
+        console.warn('offer skipped, connection already exists for', peerId);
+        return;
+    }
+
     const pc = createPeerConnection(peerId);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
