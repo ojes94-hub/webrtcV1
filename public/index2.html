@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Video Chat v1</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>WebRTC Video Chat (multi-peer)</h1>
+        <div class="video-container" id="videos">
+            <div class="video-box">
+                <h3>Local Video</h3>
+                <video id="localVideo" autoplay muted playsinline></video>
+            </div>
+            <!-- remote video boxes will be appended here -->
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" onclick="startCall()">Start Call</button>
+            <button id="hangupBtn" onclick="hangupCall()" disabled>Hang Up</button>
+            <button id="toggleVideoBtn" onclick="toggleVideo()">Camera Off</button>
+            <button id="toggleAudioBtn" onclick="toggleAudio()">Mic Off</button>
+            <button id="zoomInBtn" onclick="zoomInOneStep()">Zoom In</button>
+            <button id="zoomOutBtn" onclick="zoomOutOneStep()">Zoom Out</button>
+        </div>
+
+        <div class="status">
+            <p id="status">Ready</p>
+            <p id="connectionState">Connection: Disconnected</p>
+        </div>
+    </div>
+
+    <script src="/js/main.js"></script>
+</body>
+</html>
