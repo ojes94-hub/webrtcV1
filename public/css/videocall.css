@@ -72,7 +72,7 @@ body {
 
 #tile-susan.is-minimized {
   position: fixed; /* Pops out of the grid flow */
-  bottom: 100px;   /* Sits above the controls bar */
+  bottom: 400px;   /* Sits above the controls bar */
   right: 20px;
   width: 280px;    /* PIP size */
   height: 160px;
