@@ -90,7 +90,7 @@ async function startCall() {
         updateStatus(`Error: ${err.message}`);
         console.error(err);
     }
-    zoomOutOneStep();
+   
 }
 
 function connectWebSocket() {
