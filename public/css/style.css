@@ -124,6 +124,18 @@ button {
     box-shadow: 0 5px 15px rgba(255, 167, 38, 0.4);
 }
 
+#zoomOutBtn {
+    background: #4caf50;
+    color: white;
+}
+
+#zoomOutBtn:hover {
+    background: #388e3c;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+}
+
+
 .status {
     text-align: center;
     color: #666;
