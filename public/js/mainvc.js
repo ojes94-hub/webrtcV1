@@ -219,10 +219,14 @@ function createPeerConnection(peerId) {
             // build a tile matching the local video structure for consistent styling
             const box = document.createElement('div');
             box.className = 'video-box';
+            box.style.width = '100%';
+            box.style.height = '100%';
 
             const tile = document.createElement('div');
             tile.className = 'video-tile';
             tile.id = 'tile_' + peerId;
+            tile.style.width = '100%';
+            tile.style.height = '100%';
 
             // minimize button (visible only when pinned via CSS rules)
             const minimizeBtn = document.createElement('button');
