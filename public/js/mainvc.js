@@ -245,20 +245,34 @@ function adjustLayout() {
         }
     } else if (count === 2) {
         grid.classList.add('two');
-        // pin remote (assume second box is remote)
+        // Find remote and local tiles
+        let remoteBox = null, localBox = null;
         boxes.forEach(box => {
             const tile = box.querySelector('.video-tile');
-            if (tile && tile.id !== 'tile-susan') {
-                pinTile(tile);
-            }
+            if (tile && tile.id !== 'tile-susan') remoteBox = box;
+            if (tile && tile.id === 'tile-susan') localBox = box;
         });
-        // minimize local
-        if (localTile) {
-            localTile.classList.add('is-minimized');
-            const icon = localTile.querySelector('.minimize-btn [data-lucide]');
+        // Overlay local on remote
+        if (remoteBox && localBox) {
+            // Make remote fill grid
+            remoteBox.style.position = 'relative';
+            remoteBox.style.zIndex = '1';
+            remoteBox.style.width = '100%';
+            remoteBox.style.height = '100%';
+            // Make local PIP overlay
+            localBox.style.position = 'absolute';
+            localBox.style.bottom = '100px';
+            localBox.style.right = '20px';
+            localBox.style.width = '280px';
+            localBox.style.height = '160px';
+            localBox.style.zIndex = '1000';
+            localBox.querySelector('.video-tile').classList.add('is-minimized');
+            const icon = localBox.querySelector('.minimize-btn [data-lucide]');
             if (icon) icon.setAttribute('data-lucide', 'maximize-2');
-            startDraggable(localTile);
+            startDraggable(localBox.querySelector('.video-tile'));
         }
+        // Hide grid overflow to prevent scrollbars
+        grid.style.overflow = 'hidden';
     } else {
         grid.classList.add('many');
         // Responsive grid: twos in a row for mobile, tiles for desktop
