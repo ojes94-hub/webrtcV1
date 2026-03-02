@@ -281,7 +281,28 @@ body {
   gap: 8px; 
 }
 
-/* 8. Mobile Responsiveness */
+/* layout modifiers based on participant count */
+.video-grid.single {
+  padding: 0;
+}
+.video-grid.single .video-box {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.video-grid.two #tile-susan {
+  /* make the pinned tile fill everything */
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  position: relative !important; /* override sticky so it fills vertical space */
+  top: auto !important;
+  left: auto !important;
+}
+.video-grid.two .video-box:not(:first-child) .video-tile {
+  /* local will be second element normally; it gets minimized separately via JS */
+}
+
+/* mobile adjustments */
 @media (max-width: 768px) {
   .video-grid {
     grid-template-columns: repeat(2, 1fr);

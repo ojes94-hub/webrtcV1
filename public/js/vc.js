@@ -73,6 +73,8 @@ document.querySelector('.video-grid').addEventListener('click', function(e) {
         updatePeopleList();
       }
       lucide.createIcons();
+      // layout might have changed if user pinned someone
+      if (typeof adjustLayout === 'function') adjustLayout();
     }, 100); 
   }
 });

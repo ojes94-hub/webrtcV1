@@ -124,6 +124,7 @@ async function startCall() {
 
         localVideo.srcObject = localStream;
         updateStatus('Local media acquired');
+        adjustLayout();
 
         connectWebSocket();
 
@@ -202,6 +203,77 @@ function send(msg) {
     }
 }
 
+function pinTile(tile) {
+    const grid = document.querySelector('.video-grid');
+    const currentHost = document.getElementById('tile-susan');
+    if (currentHost && currentHost !== tile) {
+        currentHost.classList.remove('is-minimized');
+        currentHost.style.top = ""; currentHost.style.left = "";
+        currentHost.style.bottom = ""; currentHost.style.right = "";
+        currentHost.onmousedown = null;
+        const icon = currentHost.querySelector('.minimize-btn [data-lucide]');
+        if (icon) icon.setAttribute('data-lucide', 'minimize-2');
+        currentHost.id = '';
+    }
+    grid.scrollTo({ top: 0, behavior: 'smooth' });
+    tile.id = 'tile-susan';
+    if (document.getElementById('people-section')?.classList.contains('active')) {
+        updatePeopleList();
+    }
+    lucide.createIcons();
+}
+
+function adjustLayout() {
+    const grid = document.querySelector('.video-grid');
+    const boxes = grid.querySelectorAll('.video-box');
+    const count = boxes.length;
+    grid.classList.remove('single','two','many');
+
+    const localTile = document.getElementById('tile-susan');
+
+    if (count === 1) {
+        grid.classList.add('single');
+        // ensure local is pinned and full size
+        if (localTile) {
+            localTile.id = 'tile-susan';
+            localTile.classList.remove('is-minimized');
+        }
+    } else if (count === 2) {
+        grid.classList.add('two');
+        // pin remote (assume second box is remote)
+        boxes.forEach(box => {
+            const tile = box.querySelector('.video-tile');
+            if (tile && tile.id !== 'tile-susan') {
+                pinTile(tile);
+            }
+        });
+        // minimize local
+        if (localTile) {
+            localTile.classList.add('is-minimized');
+            const icon = localTile.querySelector('.minimize-btn [data-lucide]');
+            if (icon) icon.setAttribute('data-lucide', 'maximize-2');
+            startDraggable(localTile);
+        }
+    } else {
+        grid.classList.add('many');
+        // unpin everything
+        boxes.forEach(box => {
+            const tile = box.querySelector('.video-tile');
+            if (tile) {
+                tile.id = '';
+                tile.classList.remove('is-minimized');
+                tile.onmousedown = null;
+                tile.style.top = '';
+                tile.style.left = '';
+                tile.style.bottom = '';
+                tile.style.right = '';
+                const icon = tile.querySelector('.minimize-btn [data-lucide]');
+                if (icon) icon.setAttribute('data-lucide', 'minimize-2');
+            }
+        });
+    }
+}
+
 function createPeerConnection(peerId) {
     const pc = new RTCPeerConnection({
         iceServers: [
@@ -261,6 +333,7 @@ function createPeerConnection(peerId) {
 
             // refresh icons after adding new elements
             if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+            adjustLayout();
         }
         video.srcObject = event.streams[0];
     };
@@ -338,6 +411,7 @@ function removePeer(peerId) {
     if (elem && elem.parentElement) {
         elem.parentElement.remove();
     }
+    adjustLayout();
 }
 
 function hangupCall() {
@@ -357,6 +431,7 @@ function hangupCall() {
     document.getElementById('videos').querySelectorAll('.video-box').forEach((box, idx) => {
         if (idx > 0) box.remove(); // keep local video
     });
+    adjustLayout();
 
     if (startCallBtn) startCallBtn.disabled = false;
     if (hangupBtn) hangupBtn.disabled = true;
