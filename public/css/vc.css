@@ -40,10 +40,28 @@ body {
   transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.video-tile .video img { 
-  width: 100%; 
-  height: 100%; 
-  object-fit: cover; 
+.video-tile .video, .video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+/* default tile aspect to keep consistent look (won't affect pinned/minimized state) */
+.video-tile {
+  aspect-ratio: 16/9;
+}
+
+/* on smaller screens let rows size to content and relax aspect ratio */
+@media (max-width: 768px) {
+  .video-grid {
+    grid-auto-rows: auto;
+  }
+  .video-tile {
+    aspect-ratio: auto;
+    min-height: 140px;
+  }
 }
 
 .video-tile:hover {

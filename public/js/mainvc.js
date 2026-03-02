@@ -236,6 +236,10 @@ function createPeerConnection(peerId) {
             video.id = 'remote_' + peerId;
             video.autoplay = true;
             video.playsInline = true;
+            // ensure the element fills the tile and uses cover mode for responsiveness
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.objectFit = 'cover';
             tile.appendChild(video);
 
             const muteIndicator = document.createElement('div');
