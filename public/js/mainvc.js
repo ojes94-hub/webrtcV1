@@ -124,6 +124,11 @@ async function startCall() {
 
         localVideo.srcObject = localStream;
         updateStatus('Local media acquired');
+        // Remove fullscreen-init class after call starts
+        const grid = document.getElementById('videos');
+        if (grid.classList.contains('fullscreen-init')) {
+            grid.classList.remove('fullscreen-init');
+        }
         adjustLayout();
 
         connectWebSocket();
@@ -256,7 +261,8 @@ function adjustLayout() {
         }
     } else {
         grid.classList.add('many');
-        // unpin everything
+        // Responsive grid: twos in a row for mobile, tiles for desktop
+        // CSS handles layout via .many class and media queries
         boxes.forEach(box => {
             const tile = box.querySelector('.video-tile');
             if (tile) {
