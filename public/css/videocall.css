@@ -262,3 +262,22 @@ body {
   }
   .sidebar.open { transform: translateX(0); }
 }
+
+ /* 3. Responsive Footer */
+  footer {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    height: 60px;
+    display: flex;
+    z-index: 1000;
+  }
+ /* 5. Mobile Adjustments */
+  @media (max-width: 600px) {
+    footer { height: 50px; font-size: 12px; }
+    body { 
+      padding-top: 60px; 
+      padding-bottom: 50px; 
+    }
+    .logo-text { display: none; } /* Hide text, keep icon if needed */
+  }

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  /* 1. Base Styles & Body Padding */
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* Match these paddings to the header/footer heights */
+    padding-top: 70px;
+    padding-bottom: 60px;
+  }
+
+  /* 2. Responsive Header */
+  header {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    height: 70px;
+    background: #1a1a1a;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    box-sizing: border-box; /* Essential for padding + width 100% */
+    z-index: 1000;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+
+  /* 3. Responsive Footer */
+  footer {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    height: 60px;
+    background: #1a1a1a;
+    color: white;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 1000;
+  }
+
+  /* 4. Content Area */
+  main {
+    padding: 15px;
+    max-width: 800px;
+    margin: 0 auto; /* Centers content on desktop */
+  }
+
+  /* 5. Mobile Adjustments */
+  @media (max-width: 600px) {
+    header { height: 60px; font-size: 14px; }
+    footer { height: 50px; font-size: 12px; }
+    body { 
+      padding-top: 60px; 
+      padding-bottom: 50px; 
+    }
+    .logo-text { display: none; } /* Hide text, keep icon if needed */
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><strong>🚀 Brand</strong> <span class="logo-text">Name</span></div>
+  <nav>Menu</nav>
+</header>
+
+<main>
+  <h2>Mobile-First Content</h2>
+  <p>This container is centered on desktop but fills the width on mobile.</p>
+  <div style="height: 1500px; background: linear-gradient(#fff, #ddd); border: 1px dashed #ccc; padding: 10px;">
+    Everything here stays scrollable between the fixed bars.
+  </div>
+</main>
+
+<footer>
+  <span>🏠 Home</span>
+  <span>🔍 Search</span>
+  <span>👤 Profile</span>
+</footer>
+
+</body>
+</html>
