@@ -376,7 +376,7 @@ body {
   z-index: 10;         /* Ensures it sits above the video */
   
   /* Styling */
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.1);
   color: white;
   padding: 4px 12px;
   border-radius: 4px;
