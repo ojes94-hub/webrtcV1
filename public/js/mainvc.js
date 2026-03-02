@@ -216,17 +216,43 @@ function createPeerConnection(peerId) {
         console.log('ontrack for', peerId, 'streams', event.streams);
         let video = document.getElementById('remote_' + peerId);
         if (!video) {
+            // build a tile matching the local video structure for consistent styling
             const box = document.createElement('div');
             box.className = 'video-box';
-            const label = document.createElement('h3');
-            label.textContent = `Remote: ${peerId}`;
+
+            const tile = document.createElement('div');
+            tile.className = 'video-tile';
+            tile.id = 'tile_' + peerId;
+
+            // minimize button (visible only when pinned via CSS rules)
+            const minimizeBtn = document.createElement('button');
+            minimizeBtn.className = 'minimize-btn';
+            minimizeBtn.addEventListener('click', (e) => toggleMinimize(e));
+            minimizeBtn.innerHTML = '<i data-lucide="minimize-2"></i>';
+            tile.appendChild(minimizeBtn);
+
             video = document.createElement('video');
+            video.className = 'video';
             video.id = 'remote_' + peerId;
             video.autoplay = true;
             video.playsInline = true;
-            box.appendChild(label);
-            box.appendChild(video);
+            tile.appendChild(video);
+
+            const muteIndicator = document.createElement('div');
+            muteIndicator.className = 'mute-indicator';
+            muteIndicator.innerHTML = '<i data-lucide="mic-off"></i>';
+            tile.appendChild(muteIndicator);
+
+            const overlay = document.createElement('div');
+            overlay.className = 'tile-overlay';
+            overlay.innerHTML = `<span>Remote: ${peerId}</span><i data-lucide="mic"></i>`;
+            tile.appendChild(overlay);
+
+            box.appendChild(tile);
             document.getElementById('videos').appendChild(box);
+
+            // refresh icons after adding new elements
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
         }
         video.srcObject = event.streams[0];
     };
