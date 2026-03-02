@@ -345,7 +345,7 @@ body {
   @media (max-width: 600px) {
     footer { height: 50px; font-size: 12px; }
     body { 
-      padding-top: 8px; 
+      padding-top: 1px; 
       padding-bottom: 50px; 
     }
     .logo-text { display: none; } /* Hide text, keep icon if needed */
@@ -354,7 +354,7 @@ body {
 
   .status {
     text-align: center;
-    color: #808080;
+    color: #cdcdcd;
 }
 
 #status {
@@ -365,22 +365,6 @@ body {
 
 #connectionState {
     font-size: 0.6rem;
-    color: #808080;
+    color: #999;
 }
 
-.top-center-overlay {
-  position: absolute;
-  top: 10px;           /* Distance from top */
-  left: 50%;
-  transform: translateX(-30%);
-  z-index: 10;         /* Ensures it sits above the video */
-  
-  /* Styling */
-  background: rgba(0, 0, 0, 0.008);
-  color: white;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  pointer-events: none; /* Allows clicks to pass through to the video */
-}
