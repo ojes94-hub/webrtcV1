@@ -354,7 +354,7 @@ body {
 
   .status {
     text-align: center;
-    color: #cdcdcd;
+    color: #a8a6a6;
 }
 
 #status {
@@ -365,13 +365,13 @@ body {
 
 #connectionState {
     font-size: 0.6rem;
-    color: #999;
+    color: #9f9e9e;
 }
 
 .top-center-overlay {
   position: absolute;
   top: 10px;           /* Distance from top */
-  left: 50%;
+  left: 30%;
   transform: translateX(-50%);
   z-index: 10;         /* Ensures it sits above the video */
   
