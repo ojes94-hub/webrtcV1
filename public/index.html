@@ -12,7 +12,7 @@
 <body>
 
   <div class="content-wrapper">
-    <main class="video-grid" id="main-grid videos">
+    <main class="video-grid" id="videos">
       <!-- Susan (Initial Host) -->
        <div class="video-box">
       <div class="video-tile" id="tile-susan">
@@ -29,25 +29,7 @@
         </div>
 </div>
       <!-- Other Participants -->
-      <div class="video-tile">
-        <button class="minimize-btn" onclick="toggleMinimize(event)"><i data-lucide="minimize-2"></i></button>
-        <img src="https://low-yellow-mn7rvka9bx.edgeone.app/aaa.jpg" alt="Linda">
-        <div class="mute-indicator"><i data-lucide="mic-off"></i></div>
-        <div class="tile-overlay"><span>Linda - Consultant</span><i data-lucide="mic"></i></div>
-      </div>
-
-      <div class="video-tile">
-        <button class="minimize-btn" onclick="toggleMinimize(event)"><i data-lucide="minimize-2"></i></button>
-        <img src="https://low-yellow-mn7rvka9bx.edgeone.app/aaa.jpg" alt="U3">
-        <div class="tile-overlay"><span>Participant 3</span></div>
-      </div>
-
-      <div class="video-tile">
-        <button class="minimize-btn" onclick="toggleMinimize(event)"><i data-lucide="minimize-2"></i></button>
-        <img src="https://low-yellow-mn7rvka9bx.edgeone.app/aaa.jpg" alt="U4">
-        <div class="tile-overlay"><span>Participant 4</span></div>
-      </div>
-
+      <!-- Remote video boxes will be dynamically appended here -->
     
     </main>
 
@@ -70,16 +52,13 @@
   </div>
 
  <footer class="controls-bar">
- 
-    <button class="icon-btn"><i data-lucide="phone" onclick="startCall()"></i></button>
-    <button class="icon-btn"><i data-lucide="mic"></i></button>
-    <button class="icon-btn"><i data-lucide="video"></i></button>
+    <button class="icon-btn" id="startCallBtn"><i data-lucide="phone"></i></button>
+    <button class="icon-btn" id="toggleAudioBtn"><i data-lucide="mic"></i></button>
+    <button class="icon-btn" id="toggleVideoBtn"><i data-lucide="video"></i></button>
     <button class="icon-btn"><i data-lucide="hand"></i></button>
     <button class="icon-btn"><i data-lucide="monitor"></i></button>
     <button class="icon-btn" onclick="toggleSidebar()"><i data-lucide="message-square"></i></button>
-    <button class="end-call-btn"><i data-lucide="phone-off"></i></button>
-
-
+    <button class="end-call-btn" id="hangupBtn"><i data-lucide="phone-off"></i></button>
   </footer>
   
  

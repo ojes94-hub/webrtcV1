@@ -7,8 +7,13 @@ const peerConnections = {}; // peerId -> RTCPeerConnection
 const localVideo = document.getElementById('localVideo');
 const statusEl = document.getElementById('status');
 const connectionStateEl = document.getElementById('connectionState');
-const startBtn = document.getElementById('startBtn');
+
+// New UI elements (start/hangup/audio/video buttons are icons)
+const startCallBtn = document.getElementById('startCallBtn');
 const hangupBtn = document.getElementById('hangupBtn');
+const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+const toggleVideoBtn = document.getElementById('toggleVideoBtn');
+
 let videoEnabled = true;
 let audioEnabled = true;
 let currentZoom = 1;
@@ -122,8 +127,10 @@ async function startCall() {
 
         connectWebSocket();
 
-        startBtn.disabled = true;
-        hangupBtn.disabled = false;
+        if (startCallBtn) startCallBtn.disabled = true;
+        if (hangupBtn) hangupBtn.disabled = false;
+        if (toggleAudioBtn) toggleAudioBtn.disabled = false;
+        if (toggleVideoBtn) toggleVideoBtn.disabled = false;
 
     } catch (err) {
         updateStatus(`Error: ${err.message}`);
@@ -317,31 +324,38 @@ function hangupCall() {
         if (idx > 0) box.remove(); // keep local video
     });
 
-    startBtn.disabled = false;
-    hangupBtn.disabled = true;
+    if (startCallBtn) startCallBtn.disabled = false;
+    if (hangupBtn) hangupBtn.disabled = true;
+    if (toggleAudioBtn) toggleAudioBtn.disabled = true;
+    if (toggleVideoBtn) toggleVideoBtn.disabled = true;
     videoEnabled = true;
     audioEnabled = true;
     currentZoom = 1;
-    document.getElementById('toggleVideoBtn').textContent = 'Camera Off';
-    document.getElementById('toggleAudioBtn').textContent = 'Mic Off';
     updateStatus('Call ended');
     updateConnectionState('Disconnected');
 }
 
 function toggleVideo() {
     if (!localStream) return;
-    const videoToggleBtn = document.getElementById('toggleVideoBtn');
     localStream.getVideoTracks().forEach(track => track.enabled = !(track.enabled));
     videoEnabled = localStream.getVideoTracks()[0]?.enabled;
-    videoToggleBtn.textContent = videoEnabled ? 'Camera Off' : 'Camera On';
-    videoToggleBtn.style.background = videoEnabled ? '#ffa726' : '#ef5350';
+    updateStatus(videoEnabled ? 'Video enabled' : 'Video disabled');
 }
 
 function toggleAudio() {
     if (!localStream) return;
-    const audioToggleBtn = document.getElementById('toggleAudioBtn');
     localStream.getAudioTracks().forEach(track => track.enabled = !(track.enabled));
     audioEnabled = localStream.getAudioTracks()[0]?.enabled;
-    audioToggleBtn.textContent = audioEnabled ? 'Mic Off' : 'Mic On';
-    audioToggleBtn.style.background = audioEnabled ? '#ffa726' : '#ef5350';
+    updateStatus(audioEnabled ? 'Microphone unmuted' : 'Microphone muted');
 }
+
+// --- UI initialization and event binding ---
+document.addEventListener('DOMContentLoaded', () => {
+    if (startCallBtn) startCallBtn.addEventListener('click', startCall);
+    if (hangupBtn) hangupBtn.addEventListener('click', hangupCall);
+
+    // initial button states
+    if (hangupBtn) hangupBtn.disabled = true;
+    if (toggleAudioBtn) toggleAudioBtn.disabled = true;
+    if (toggleVideoBtn) toggleVideoBtn.disabled = true;
+});

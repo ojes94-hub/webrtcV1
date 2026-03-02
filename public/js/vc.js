@@ -18,6 +18,11 @@ document.querySelectorAll('.icon-btn').forEach(btn => {
       if (currentIcon.includes('mic')) {
         this.style.background = isActive ? '#565152' : '#2a2a2a';
         document.querySelectorAll('.video-tile').forEach(t => t.classList.toggle('is-muted', isActive));
+        // call audio toggle logic if available
+        if (typeof toggleAudio === 'function') toggleAudio();
+      } else if (currentIcon.includes('video')) {
+        this.style.background = isActive ? '#565152' : '#2a2a2a';
+        if (typeof toggleVideo === 'function') toggleVideo();
       } else {
         this.style.background = isActive ? '#565152' : '#2a2a2a';
       }

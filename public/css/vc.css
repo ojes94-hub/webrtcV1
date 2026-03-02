@@ -238,6 +238,16 @@ body {
   justify-content: center; 
   transition: 0.2s; 
 }
+
+.icon-btn:disabled { 
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.end-call-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .end-call-btn { 
   background: #ff4757; 
   color: white; 
