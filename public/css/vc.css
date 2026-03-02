@@ -345,9 +345,25 @@ body {
   @media (max-width: 600px) {
     footer { height: 50px; font-size: 12px; }
     body { 
-      padding-top: 60px; 
+      padding-top: 10px; 
       padding-bottom: 50px; 
     }
     .logo-text { display: none; } /* Hide text, keep icon if needed */
   }
 
+
+  .status {
+    text-align: center;
+    color: #cdcdcd;
+}
+
+#status {
+    font-size: 0.8rem;
+    margin-bottom: 3px;
+    font-weight: 50;
+}
+
+#connectionState {
+    font-size: 0.6rem;
+    color: #999;
+}
