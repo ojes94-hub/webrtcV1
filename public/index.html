@@ -10,14 +10,17 @@
   <link href="https://fonts.googleapis.com" rel="stylesheet">
 </head>
 <body>
-  <div class="status">
-            <p id="status">Encrypted</p>
-            <p id="connectionState">Connection: Disconnected</p>
-        </div>
+ 
   <div class="content-wrapper">
     <main class="video-grid" id="main-grid">
       <!-- Susan (Initial Host) -->
       <div class="video-tile" id="tile-susan">
+          <div class="top-center-overlay">
+             <div class="status">
+            <p id="status">Encrypted</p>
+            <p id="connectionState">Connection: Disconnected</p>
+        </div>
+          </div>
         <button class="minimize-btn" onclick="toggleMinimize(event)">
           <i data-lucide="minimize-2"></i>
         </button>

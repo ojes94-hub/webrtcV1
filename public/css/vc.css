@@ -367,3 +367,20 @@ body {
     font-size: 0.6rem;
     color: #999;
 }
+
+.top-center-overlay {
+  position: absolute;
+  top: 10px;           /* Distance from top */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;         /* Ensures it sits above the video */
+  
+  /* Styling */
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  pointer-events: none; /* Allows clicks to pass through to the video */
+}
