@@ -254,11 +254,13 @@ function adjustLayout() {
         });
         // Overlay local on remote
         if (remoteBox && localBox) {
-            // Make remote fill grid
-            remoteBox.style.position = 'relative';
+            // Make remote fill the entire grid (fullscreen)
+            remoteBox.style.position = 'absolute';
+            remoteBox.style.top = '0';
+            remoteBox.style.left = '0';
+            remoteBox.style.width = '100vw';
+            remoteBox.style.height = '100vh';
             remoteBox.style.zIndex = '1';
-            remoteBox.style.width = '100%';
-            remoteBox.style.height = '100%';
             // Make local PIP overlay
             localBox.style.position = 'absolute';
             localBox.style.bottom = '100px';
