@@ -12,7 +12,7 @@ export class CallSession {
     this.onRemoteStream = options.onRemoteStream;
     this.onChat = options.onChat;
     this.onSpeaker = options.onSpeaker;
-    this.localStream = options.localStream;
+    this.localStream = options.localStream || null;
     this.signaling = new RoomSignaling(this.roomId, this.displayName);
     this.iceServers = null;
     this.clientId = "";
@@ -25,12 +25,12 @@ export class CallSession {
     this.restartingPeers = new Set();
     this.restartTimers = new Map();
     this.audioContext = null;
-    this.cameraTrack = this.localStream.getVideoTracks()[0] || null;
+    this.cameraTrack = this.localStream?.getVideoTracks()[0] || null;
     this.displayTrack = null;
     this.facingMode = "user";
     this.raisedHand = false;
     this.presenting = false;
-    this.audioEnabled = this.localStream.getAudioTracks().some((track) => track.enabled);
+    this.audioEnabled = Boolean(this.localStream?.getAudioTracks().some((track) => track.enabled));
     this.videoEnabled = Boolean(this.cameraTrack?.enabled);
     this.isStarted = false;
   }
@@ -41,7 +41,7 @@ export class CallSession {
     this.bindSignaling();
     this.signaling.connect();
     this.isStarted = true;
-    this.watchSpeaker("local", this.localStream);
+    if (this.localStream) this.watchSpeaker("local", this.localStream);
   }
 
   async loadIceServers() {
@@ -159,11 +159,19 @@ export class CallSession {
 
   createPeerConnection(peerId) {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    this.localStream.getTracks().forEach((track) => {
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
       const sender = pc.addTrack(track, this.localStream);
       if (track.kind === "video") this.videoSenders.set(peerId, sender);
       if (track.kind === "audio") this.audioSenders.set(peerId, sender);
-    });
+      });
+    }
+    if (!this.localStream?.getAudioTracks().length) {
+      pc.addTransceiver("audio", { direction: "recvonly" });
+    }
+    if (!this.localStream?.getVideoTracks().length) {
+      pc.addTransceiver("video", { direction: "recvonly" });
+    }
 
     pc.addEventListener("track", (event) => {
       const stream = event.streams[0] || new MediaStream([event.track]);
@@ -365,6 +373,13 @@ export class CallSession {
     this.onParticipants([...this.participants.values()]);
   }
 
+  ensureLocalStream() {
+    if (!this.localStream) {
+      this.localStream = new MediaStream();
+      this.localVideo.srcObject = this.localStream;
+    }
+  }
+
   toggleRaiseHand(enabled) {
     this.raisedHand = enabled;
     this.signaling.send({ type: "raise-hand", data: { active: enabled } });
@@ -372,12 +387,42 @@ export class CallSession {
   }
 
   async setAudioEnabled(enabled) {
+    if (enabled && !this.localStream?.getAudioTracks().length) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const track = stream.getAudioTracks()[0];
+      if (!track) throw new Error("Microphone unavailable");
+      this.ensureLocalStream();
+      this.localStream.addTrack(track);
+      for (const [peerId, pc] of this.peerConnections) {
+        const sender = this.audioSenders.get(peerId);
+        if (sender) await sender.replaceTrack(track);
+        else this.audioSenders.set(peerId, pc.addTrack(track, this.localStream));
+      }
+      this.watchSpeaker("local", this.localStream);
+    }
     this.audioEnabled = enabled;
-    this.localStream.getAudioTracks().forEach((track) => { track.enabled = enabled; });
+    this.localStream?.getAudioTracks().forEach((track) => { track.enabled = enabled; });
     this.publishPresence();
   }
 
   async setVideoEnabled(enabled) {
+    if (enabled && !this.cameraTrack) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: this.facingMode } },
+        audio: false
+      });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error("Camera unavailable");
+      this.ensureLocalStream();
+      this.localStream.addTrack(track);
+      this.cameraTrack = track;
+      for (const [peerId, pc] of this.peerConnections) {
+        const sender = this.videoSenders.get(peerId);
+        if (sender) await sender.replaceTrack(track);
+        else this.videoSenders.set(peerId, pc.addTrack(track, this.localStream));
+      }
+      this.localVideo.srcObject = this.localStream;
+    }
     this.videoEnabled = enabled;
     const track = this.displayTrack || this.cameraTrack;
     if (track) track.enabled = enabled;
@@ -389,6 +434,7 @@ export class CallSession {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
     const nextTrack = stream.getAudioTracks()[0];
     if (!nextTrack) throw new Error("The selected microphone is unavailable");
+    this.ensureLocalStream();
     const oldTrack = this.localStream.getAudioTracks()[0];
     for (const sender of this.audioSenders.values()) await sender.replaceTrack(nextTrack);
     if (oldTrack) {
@@ -415,6 +461,7 @@ export class CallSession {
 
   async replaceCameraTrack(nextTrack) {
     if (!nextTrack) throw new Error("No camera track is available");
+    this.ensureLocalStream();
     const oldTrack = this.cameraTrack;
     if (oldTrack) {
       for (const sender of this.videoSenders.values()) {
@@ -436,6 +483,7 @@ export class CallSession {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     const track = stream.getVideoTracks()[0];
     if (!track) throw new Error("No screen video track was provided");
+    this.ensureLocalStream();
     this.displayTrack = track;
     if (this.cameraTrack) this.localStream.removeTrack(this.cameraTrack);
     this.localStream.addTrack(track);
@@ -456,10 +504,10 @@ export class CallSession {
     if (!this.displayTrack) return;
     const displayTrack = this.displayTrack;
     this.displayTrack = null;
-    this.localStream.removeTrack(displayTrack);
+    this.localStream?.removeTrack(displayTrack);
     displayTrack.stop();
     if (this.cameraTrack && this.cameraTrack.readyState === "live") {
-      this.localStream.addTrack(this.cameraTrack);
+      this.localStream?.addTrack(this.cameraTrack);
       for (const sender of this.videoSenders.values()) await sender.replaceTrack(this.cameraTrack);
     } else {
       for (const sender of this.videoSenders.values()) await sender.replaceTrack(null);
@@ -552,7 +600,7 @@ export class CallSession {
     for (const timer of this.restartTimers.values()) window.clearTimeout(timer);
     this.restartTimers.clear();
     if (this.displayTrack) this.displayTrack.stop();
-    this.localStream.getTracks().forEach((track) => track.stop());
+    this.localStream?.getTracks().forEach((track) => track.stop());
     await this.audioContext?.close().catch((error) => console.warn("Could not close audio context", error));
     this.audioContext = null;
     this.localVideo.srcObject = null;

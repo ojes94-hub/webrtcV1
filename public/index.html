@@ -9,6 +9,7 @@
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
+  <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Meet home"><span class="brand-mark">M</span><span>Meet</span></a>
     <div id="room-toolbar" class="room-toolbar" hidden>
@@ -21,6 +22,10 @@
   </header>
 
   <main id="lobby" class="lobby">
+    <div class="mobile-lobby-header">
+      <a class="brand" href="/" aria-label="Meet home"><span class="brand-mark">M</span><span>Meet</span></a>
+      <span class="mobile-lobby-tagline">Meetings made simple</span>
+    </div>
     <section class="preview-card" aria-label="Camera and microphone preview">
       <div class="preview-heading">
         <div><p class="eyebrow">Before you join</p><h2>Check your setup</h2></div>
@@ -33,15 +38,22 @@
         </div>
         <div id="preview-name" class="preview-name">Your name</div>
         <div class="preview-controls">
-          <button id="previewMic" class="round-control" type="button" aria-label="Mute microphone" aria-pressed="false">Mic</button>
-          <button id="startPreview" class="round-control" type="button" aria-label="Toggle camera" aria-pressed="false">Cam</button>
+          <button id="previewMic" class="round-control" type="button" aria-label="Mute microphone" aria-pressed="false">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V6A3.5 3.5 0 1 0 8.5 6v6a3.5 3.5 0 0 0 3.5 3.5Zm-6-3.5h1.5a4.5 4.5 0 0 0 9 0H18a6 6 0 0 1-5.25 5.95V21h-1.5v-3.05A6 6 0 0 1 6 12Z"/></svg>
+          </button>
+          <button id="startPreview" class="round-control" type="button" aria-label="Toggle camera" aria-pressed="false">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 8.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5l6 3.5V5l-6 3.5Z"/></svg>
+          </button>
         </div>
       </div>
-      <div class="device-grid">
-        <label>Camera<select id="cameraSelect"><option value="">Default camera</option></select></label>
-        <label>Microphone<select id="microphoneSelect"><option value="">Default microphone</option></select></label>
-        <label>Speaker<select id="speakerSelect"><option value="">Default speaker</option></select></label>
-      </div>
+      <details class="device-settings" open>
+        <summary>Device settings</summary>
+        <div class="device-grid">
+          <label>Camera<select id="cameraSelect"><option value="">Default camera</option></select></label>
+          <label>Microphone<select id="microphoneSelect"><option value="">Default microphone</option></select></label>
+          <label>Speaker<select id="speakerSelect"><option value="">Default speaker</option></select></label>
+        </div>
+      </details>
       <p class="privacy-note">Your camera and microphone are only shared after you join.</p>
     </section>
 
@@ -61,7 +73,7 @@
           <button class="button button-secondary" type="submit">Join</button>
         </div>
       </form>
-      <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button">Copy invite link</button>
+      <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button" hidden>Copy invite link</button>
       <p id="lobby-error" class="error-message" role="alert"></p>
     </section>
   </main>
@@ -79,13 +91,16 @@
       <section id="video-grid" class="video-grid" aria-label="Meeting participant filmstrip">
         <article id="local-tile" class="video-tile local-tile" data-peer-id="local">
           <video id="localVideo" autoplay muted playsinline></video>
+          <div id="local-avatar" class="video-avatar" hidden><span id="local-avatar-letter">Y</span></div>
           <div class="tile-shade"></div>
           <div class="tile-caption"><span id="localName">You</span><span id="localMicState" class="mic-state">Mic on</span></div>
           <span id="local-hand" class="hand-badge" hidden>✋</span>
         </article>
         <div id="empty-call" class="empty-call">Waiting for someone to join…</div>
+        <div id="mobile-overflow-pill" class="mobile-overflow-pill" hidden></div>
       </section>
 
+      <button id="panel-backdrop" class="panel-backdrop" type="button" aria-label="Close panel" hidden></button>
       <aside id="side-panel" class="side-panel" hidden>
         <div class="panel-heading">
           <h2 id="panel-title">Participants</h2>
@@ -97,19 +112,33 @@
           <ul id="participant-list" class="participant-list"></ul>
         </section>
         <section id="chat-panel" class="panel-content chat-panel" hidden>
+          <div class="chat-summary">
+            <div>
+              <strong>Meeting chat</strong>
+              <span id="chat-participant-count">0 participants in room</span>
+            </div>
+            <div id="chat-participant-avatars" class="chat-participant-avatars" aria-hidden="true"></div>
+          </div>
           <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
           <form id="chat-form" class="chat-form">
             <label class="sr-only" for="chat-input">Message</label>
             <input id="chat-input" maxlength="2000" autocomplete="off" placeholder="Write a message…">
-            <button class="button button-primary" type="submit">Send</button>
+            <button class="button button-primary" type="submit" aria-label="Send message">
+              <span>Send</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 20.5v-17l18 8.5-18 8.5Zm2-3.1 9.85-4.9L5 7.6v3.2l6 1.2-6 1.2v4.2Z"/></svg>
+            </button>
           </form>
         </section>
       </aside>
     </div>
 
     <div id="mobile-utilities" class="mobile-utilities" aria-label="Call utilities">
-      <button id="mobileAudioOutput" class="mobile-utility" type="button" aria-label="Audio output">♪</button>
-      <button id="mobileSwitchCamera" class="mobile-utility" type="button" aria-label="Switch camera">↻</button>
+      <button id="mobileAudioOutput" class="mobile-utility" type="button" aria-label="Audio output">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 4.5v15l-5-4H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h4l5-4Zm3.2 3.3 1.1-1.1a7 7 0 0 1 0 10.6l-1.1-1.1a5.5 5.5 0 0 0 0-8.4Zm-2.1 2.1 1.1-1.1a4 4 0 0 1 0 6l-1.1-1.1a2.5 2.5 0 0 0 0-3.8Z"/></svg>
+      </button>
+      <button id="mobileSwitchCamera" class="mobile-utility" type="button" aria-label="Switch camera">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 7h-2.35l-1-1.5A2.5 2.5 0 0 0 13.57 4H10.43a2.5 2.5 0 0 0-2.08 1.5l-1 1.5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2ZM12 17a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm5-6.5-1.5-1.5L14 10.5l1.5 1.5L17 10.5Z"/></svg>
+      </button>
     </div>
 
     <footer class="call-controls">
@@ -118,24 +147,34 @@
         <span id="call-connection-state">Connecting…</span>
       </div>
       <div class="control-group">
-        <button id="audioToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">Mic</span><span>Mute</span></button>
-        <button id="videoToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">Cam</span><span>Camera</span></button>
+        <button id="audioToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V6A3.5 3.5 0 1 0 8.5 6v6a3.5 3.5 0 0 0 3.5 3.5Zm-6-3.5h1.5a4.5 4.5 0 0 0 9 0H18a6 6 0 0 1-5.25 5.95V21h-1.5v-3.05A6 6 0 0 1 6 12Z"/></svg></span><span>Mute</span></button>
+        <button id="videoToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 8.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5l6 3.5V5l-6 3.5Z"/></svg></span><span>Camera</span></button>
         <button id="captionsToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">CC</span><span>Captions</span></button>
         <button id="raiseHand" class="control-button" type="button" aria-pressed="false"><span class="control-icon">✋</span><span>Raise</span></button>
-        <button id="screenShare" class="control-button" type="button" aria-pressed="false"><span class="control-icon">⇧</span><span>Present</span></button>
+        <button id="screenShare" class="control-button" type="button" aria-pressed="false"><span class="control-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-6v2H8v-2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm8 3-4 4h3v5h2v-5h3l-4-4Z"/></svg></span><span>Present</span></button>
         <button id="moreButton" class="control-button" type="button"><span class="control-icon">⋮</span><span>More</span></button>
-        <button id="hangupButton" class="control-button control-hangup" type="button"><span>Leave</span></button>
+        <button id="hangupButton" class="control-button control-hangup" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5.2 11.3C8.2 8.8 15.8 8.8 18.8 11.3l2.2-2.1C17.1 5.8 6.9 5.8 3 9.2l2.2 2.1Zm0 2.3-2.2 2.1c3.9 3.4 14.1 3.4 18 0l-2.2-2.1c-3.8 2.7-9.8 2.7-13.6 0Z"/></svg><span>Leave</span></button>
       </div>
       <div class="drawer-controls">
         <button id="infoButton" class="control-button drawer-button" type="button"><span class="control-icon">ⓘ</span><span>Info</span></button>
-        <button id="participantsButton" class="control-button drawer-button" type="button"><span class="control-icon">♙</span><span>People</span><b id="participant-badge" class="badge" hidden>1</b></button>
-        <button id="chatButton" class="control-button drawer-button" type="button"><span class="control-icon">▤</span><span>Chat</span><b id="unread-badge" class="badge" hidden>0</b></button>
+        <button id="participantsButton" class="control-button drawer-button" type="button"><span class="control-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 13c-4.42 0-8 2.01-8 4.5V20h16v-2.5C17 15.01 13.42 13 9 13Zm7 0c-.65 0-1.27.05-1.85.14A5.9 5.9 0 0 1 18 17.5V20h5v-2.5C23 15.01 19.42 13 16 13Z"/></svg></span><span>People</span><b id="participant-badge" class="badge" hidden>1</b></button>
+        <button id="chatButton" class="control-button drawer-button" type="button"><span class="control-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5.5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm3.5 8.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm4.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm4.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Z"/></svg></span><span>Chat</span><b id="unread-badge" class="badge" hidden>0</b></button>
       </div>
-      <button id="mobileChat" class="mobile-action" type="button" aria-label="Chat">💬</button>
-      <button id="mobileParticipants" class="mobile-action" type="button" aria-label="Participants">👥</button>
-      <button id="mobileHangup" class="mobile-action mobile-hangup" type="button" aria-label="Leave call">☎</button>
-      <button id="mobileAudio" class="mobile-action" type="button" aria-label="Mute microphone">🎤</button>
-      <button id="mobileVideo" class="mobile-action" type="button" aria-label="Turn camera off">📹</button>
+      <button id="mobileChat" class="mobile-action" type="button" aria-label="Chat">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5.5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm3.5 8.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm4.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm4.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Z"/></svg>
+      </button>
+      <button id="mobileParticipants" class="mobile-action" type="button" aria-label="Participants">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 13c-4.42 0-8 2.01-8 4.5V20h16v-2.5C17 15.01 13.42 13 9 13Zm7 0c-.65 0-1.27.05-1.85.14A5.9 5.9 0 0 1 18 17.5V20h5v-2.5C23 15.01 19.42 13 16 13Z"/></svg>
+      </button>
+      <button id="mobileHangup" class="mobile-action mobile-hangup" type="button" aria-label="Leave call">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5.2 11.3C8.2 8.8 15.8 8.8 18.8 11.3l2.2-2.1C17.1 5.8 6.9 5.8 3 9.2l2.2 2.1Zm0 2.3-2.2 2.1c3.9 3.4 14.1 3.4 18 0l-2.2-2.1c-3.8 2.7-9.8 2.7-13.6 0Z"/></svg>
+      </button>
+      <button id="mobileAudio" class="mobile-action" type="button" aria-label="Mute microphone">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V6A3.5 3.5 0 1 0 8.5 6v6a3.5 3.5 0 0 0 3.5 3.5Zm-6-3.5h1.5a4.5 4.5 0 0 0 9 0H18a6 6 0 0 1-5.25 5.95V21h-1.5v-3.05A6 6 0 0 1 6 12Z"/></svg>
+      </button>
+      <button id="mobileVideo" class="mobile-action" type="button" aria-label="Turn camera off">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 8.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5l6 3.5V5l-6 3.5Z"/></svg>
+      </button>
     </footer>
 
     <div id="more-menu" class="more-menu" hidden>

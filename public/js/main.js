@@ -14,6 +14,7 @@ const cameraSelect = $("cameraSelect");
 const microphoneSelect = $("microphoneSelect");
 const speakerSelect = $("speakerSelect");
 const videoGrid = $("video-grid");
+const deviceSettings = document.querySelector(".device-settings");
 const remoteTiles = new Map();
 const participantById = new Map();
 const connectionStates = new Map();
@@ -28,6 +29,16 @@ let videoEnabled = true;
 let speakerDeviceId = "";
 let raisedHand = false;
 let captionsEnabled = false;
+let mobilePinnedPeerId = "";
+let joinNoticeTimer = null;
+
+function showJoinToast(message) {
+  const toast = $("app-toast");
+  toast.textContent = message;
+  toast.hidden = false;
+  window.clearTimeout(joinNoticeTimer);
+  joinNoticeTimer = window.setTimeout(() => { toast.hidden = true; }, 5000);
+}
 
 function isValidRoomCode(value) {
   return /^[A-Za-z0-9_-]{3,64}$/.test(value);
@@ -45,6 +56,7 @@ function setRoom(room) {
   $("room-label").textContent = `Room ${room}`;
   $("call-room-name").textContent = `Room ${room}`;
   $("room-toolbar").hidden = !room;
+  $("lobbyCopyLink").hidden = !room;
   window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}` : "/");
 }
 
@@ -94,9 +106,19 @@ function mediaConstraints() {
 
 async function getMedia() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Camera and microphone access requires a secure browser context");
+    return null;
   }
-  return navigator.mediaDevices.getUserMedia(mediaConstraints());
+  try {
+    return await navigator.mediaDevices.getUserMedia(mediaConstraints());
+  } catch (videoError) {
+    console.warn("Combined camera/microphone access failed; retrying audio-only", videoError);
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: false, audio: mediaConstraints().audio });
+    } catch (audioError) {
+      console.warn("Audio-only access failed; joining receive-only", audioError);
+      return null;
+    }
+  }
 }
 
 async function refreshDevices() {
@@ -135,6 +157,14 @@ async function togglePreview() {
   }
   try {
     previewStream = await getMedia();
+    if (!previewStream) {
+      previewPlaceholder.hidden = false;
+      previewState.textContent = "No camera or mic detected";
+      $("startPreview").textContent = "Preview unavailable";
+      $("startPreview").setAttribute("aria-pressed", "false");
+      lobbyError.textContent = "You can still join in listen/view-only mode.";
+      return;
+    }
     previewVideo.srcObject = previewStream;
     previewPlaceholder.hidden = true;
     previewState.textContent = "Camera and mic ready";
@@ -180,12 +210,10 @@ async function joinRoom(room) {
   }
   let stream = previewStream;
   if (!stream || stream.getTracks().some((track) => track.readyState !== "live")) {
-    try {
-      stream = await getMedia();
-    } catch (error) {
-      lobbyError.textContent = `Could not access your camera or microphone: ${error.message}`;
-      return;
-    }
+    stream = await getMedia();
+  }
+  if (!stream) {
+    showJoinToast("Joined in listen/view-only mode — no camera or mic active");
   }
   previewStream = null;
   previewVideo.srcObject = null;
@@ -193,9 +221,9 @@ async function joinRoom(room) {
   callView.hidden = false;
   $("connection-indicator").hidden = false;
   $("localName").textContent = name;
-  $("localMicState").textContent = "Mic on";
-  audioEnabled = stream.getAudioTracks().some((track) => track.enabled);
-  videoEnabled = stream.getVideoTracks().some((track) => track.enabled);
+  $("localMicState").textContent = "Mic off";
+  audioEnabled = Boolean(stream?.getAudioTracks().some((track) => track.enabled));
+  videoEnabled = Boolean(stream?.getVideoTracks().some((track) => track.enabled));
   updateControlState();
   callSession = new CallSession({
     roomId: room,
@@ -251,9 +279,41 @@ function updatePeerConnectionState({ peerId, connection, ice }) {
 
 function updateMobileGridLayout() {
   const count = remoteTiles.size;
+  const mobile = window.matchMedia("(max-width: 767px)").matches;
+  const stage = $("main-stage");
+  const callMain = $("call-main");
+  const remotes = [...remoteTiles.entries()];
+  remotes.forEach(([, tile]) => {
+    tile.classList.remove("mobile-overflow-hidden");
+    if (mobile) tile.classList.remove("pinned");
+    if (tile.parentElement === stage && (mobile || (count > 1 && !tile.classList.contains("pinned")))) {
+      videoGrid.append(tile);
+    }
+  });
   videoGrid.classList.remove("remote-count-1", "remote-count-2", "remote-count-3", "remote-count-4");
   if (count > 0) videoGrid.classList.add(`remote-count-${Math.min(count, 4)}`);
   $("empty-call").hidden = count > 0;
+  callMain.classList.toggle("mobile-group", mobile && count > 1);
+  callMain.classList.toggle("mobile-solo", mobile && count === 1);
+  $("mobile-overflow-pill").hidden = !mobile || count <= 5;
+  $("mobile-overflow-pill").textContent = count > 5 ? `+${count - 5} more` : "";
+  if (mobile && count > 0) {
+    const selected = remotes.find(([peerId]) => peerId === mobilePinnedPeerId) ||
+      remotes.find(([peerId]) => participantById.get(peerId)?.presenting) ||
+      remotes.find(([peerId]) => participantById.get(peerId)?.speaking) ||
+      remotes[0];
+    stage.append(selected[1]);
+    $("active-empty").hidden = true;
+    remotes.filter(([, tile]) => tile !== selected[1]).forEach(([, tile], index) => {
+      tile.classList.toggle("mobile-overflow-hidden", index >= 4);
+    });
+  } else if (!mobile && count === 1) {
+    stage.append(remotes[0][1]);
+    remotes[0][1].classList.add("pinned");
+    $("active-empty").hidden = true;
+  } else {
+    $("active-empty").hidden = Boolean(stage.querySelector(".video-tile"));
+  }
 }
 
 function updateRemoteStream(peerId, stream) {
@@ -288,6 +348,12 @@ function updateRemoteStream(peerId, stream) {
     });
     const shade = document.createElement("div");
     shade.className = "tile-shade";
+    const avatar = document.createElement("div");
+    avatar.className = "video-avatar";
+    avatar.hidden = true;
+    const avatarLetter = document.createElement("span");
+    avatarLetter.textContent = (participant?.name || "G").slice(0, 1).toUpperCase();
+    avatar.append(avatarLetter);
     const caption = document.createElement("div");
     caption.className = "tile-caption";
     const name = document.createElement("span");
@@ -302,7 +368,7 @@ function updateRemoteStream(peerId, stream) {
     hand.className = "hand-badge";
     hand.textContent = "✋";
     hand.hidden = true;
-    tile.append(video, audio, shade, caption, hand);
+    tile.append(video, audio, avatar, shade, caption, hand);
     tile.addEventListener("click", () => togglePinnedTile(tile));
     tile.classList.toggle("speaking", Boolean(participant?.speaking));
     tile.classList.toggle("video-off", Boolean(participant?.videoOff));
@@ -314,14 +380,12 @@ function updateRemoteStream(peerId, stream) {
     }
   }
   updateMobileGridLayout();
-  if (window.matchMedia("(min-width: 768px)").matches && remoteTiles.size === 1 &&
-      !$("main-stage").querySelector(".video-tile")) {
-    tile.classList.add("pinned");
-    $("main-stage").append(tile);
-    $("active-empty").hidden = true;
-  }
   const video = tile.querySelector("video");
   const audio = tile.querySelector(".remote-audio");
+  const hasVideo = Boolean(stream.getVideoTracks().some((track) => track.readyState === "live"));
+  tile.classList.toggle("video-off", !hasVideo);
+  const avatar = tile.querySelector(".video-avatar");
+  if (avatar) avatar.hidden = hasVideo;
   if (video.srcObject !== stream) {
     video.srcObject = stream;
     video.play().catch((error) => {
@@ -341,10 +405,26 @@ function updateParticipants(participants) {
   participantById.clear();
   participants.forEach((participant) => participantById.set(participant.id, participant));
   $("participant-count").textContent = `${participants.length} ${participants.length === 1 ? "person" : "people"}`;
+  $("chat-participant-count").textContent = `${participants.length} ${participants.length === 1 ? "participant" : "participants"} in room`;
   $("participant-badge").textContent = String(participants.length);
   $("participant-badge").hidden = false;
   const list = $("participant-list");
   list.replaceChildren();
+  const avatars = $("chat-participant-avatars");
+  avatars.replaceChildren();
+  participants.slice(0, 5).forEach((participant) => {
+    const avatar = document.createElement("span");
+    avatar.className = "chat-participant-avatar";
+    avatar.textContent = (participant.name || "?").slice(0, 1).toUpperCase();
+    avatar.title = participant.name;
+    avatars.append(avatar);
+  });
+  if (participants.length > 5) {
+    const overflow = document.createElement("span");
+    overflow.className = "chat-participant-avatar";
+    overflow.textContent = `+${participants.length - 5}`;
+    avatars.append(overflow);
+  }
 
   participants.forEach((participant) => {
     const name = participant.local ? `${participant.name} (you)` : participant.name;
@@ -353,6 +433,8 @@ function updateParticipants(participants) {
       $("localMicState").textContent = participant.muted ? "Mic off" : "Mic on";
       $("local-tile").classList.toggle("speaking", Boolean(participant.speaking));
       $("local-tile").classList.toggle("video-off", Boolean(participant.videoOff));
+      $("local-avatar").hidden = !participant.videoOff;
+      $("local-avatar-letter").textContent = (participant.name || "Y").slice(0, 1).toUpperCase();
       $("local-hand").hidden = !participant.raisedHand;
     } else {
       const tile = remoteTiles.get(participant.id);
@@ -361,6 +443,11 @@ function updateParticipants(participants) {
         tile.querySelector(".mic-state").textContent = participant.muted ? "Mic off" : "Mic on";
         tile.classList.toggle("speaking", Boolean(participant.speaking));
         tile.classList.toggle("video-off", Boolean(participant.videoOff));
+        const avatar = tile.querySelector(".video-avatar");
+        if (avatar) {
+          avatar.hidden = !participant.videoOff;
+          avatar.querySelector("span").textContent = (participant.name || "G").slice(0, 1).toUpperCase();
+        }
         tile.querySelector(".hand-badge").hidden = !participant.raisedHand;
       }
     }
@@ -395,14 +482,24 @@ function updateParticipants(participants) {
       }
     }
   }
+  updateMobileGridLayout();
 }
 
 function updateSpeaker(peerId, speaking) {
   const tile = peerId === "local" ? $("local-tile") : remoteTiles.get(peerId);
   tile?.classList.toggle("speaking", speaking);
+  if (peerId !== "local" && speaking) updateMobileGridLayout();
 }
 
 function appendChatMessage(message) {
+  const line = document.createElement("div");
+  line.className = `chat-line${message.mine ? " mine" : ""}`;
+  if (!message.mine) {
+    const avatar = document.createElement("span");
+    avatar.className = "chat-avatar";
+    avatar.textContent = (message.name || "?").slice(0, 1).toUpperCase();
+    line.append(avatar);
+  }
   const item = document.createElement("div");
   item.className = `chat-message${message.mine ? " mine" : ""}`;
   const author = document.createElement("strong");
@@ -410,7 +507,8 @@ function appendChatMessage(message) {
   const text = document.createElement("span");
   text.textContent = message.text;
   item.append(author, text);
-  $("chat-messages").append(item);
+  line.append(item);
+  $("chat-messages").append(line);
   $("chat-messages").scrollTop = $("chat-messages").scrollHeight;
   if (!message.mine && activePanel !== "chat") {
     unreadMessages += 1;
@@ -422,17 +520,17 @@ function appendChatMessage(message) {
 function openPanel(panel) {
   const sidePanel = $("side-panel");
   if (activePanel === panel && !sidePanel.hidden) {
-    sidePanel.hidden = true;
-    activePanel = "";
+    closePanel();
     return;
   }
   activePanel = panel;
   sidePanel.hidden = false;
+  $("panel-backdrop").hidden = !window.matchMedia("(max-width: 767px)").matches;
   $("participants-panel").hidden = panel !== "people" && panel !== "info";
   $("chat-panel").hidden = panel !== "chat";
   $("panel-title").textContent =
     panel === "people" ? "Participants" :
-    panel === "info" ? "Meeting info" : "Room chat";
+    panel === "info" ? "Meeting info" : "Meeting chat";
   if (panel === "chat") {
     unreadMessages = 0;
     $("unread-badge").hidden = true;
@@ -440,9 +538,22 @@ function openPanel(panel) {
   }
 }
 
+function closePanel() {
+  $("side-panel").hidden = true;
+  $("panel-backdrop").hidden = true;
+  activePanel = "";
+}
+
+window.addEventListener("resize", updateMobileGridLayout);
+
 function togglePinnedTile(tile) {
   if (window.matchMedia("(max-width: 767px)").matches) {
     if (tile.id === "local-tile") withCall(() => callSession.switchCamera());
+    else {
+      const peerId = tile.dataset.peerId;
+      mobilePinnedPeerId = mobilePinnedPeerId === peerId ? "" : peerId;
+      updateMobileGridLayout();
+    }
     return;
   }
   const isPinned = tile.classList.contains("pinned");
@@ -484,14 +595,14 @@ async function leaveCall() {
   if (callSession) await callSession.leave();
   callSession = null;
   remoteTiles.clear();
+  mobilePinnedPeerId = "";
   participantById.clear();
   connectionStates.clear();
   document.querySelectorAll(".remote-tile").forEach((tile) => tile.remove());
   videoGrid.classList.remove("has-pinned");
   updateMobileGridLayout();
   $("empty-call").hidden = false;
-  $("side-panel").hidden = true;
-  activePanel = "";
+  closePanel();
   callView.hidden = true;
   lobby.hidden = false;
   $("connection-indicator").hidden = true;
@@ -512,7 +623,13 @@ async function copyRoomLink() {
   try {
     await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}`);
     $("copyRoomLink").textContent = "Copied!";
-    window.setTimeout(() => { $("copyRoomLink").textContent = "Copy invite link"; }, 1600);
+    $("lobbyCopyLink").textContent = "Invite link copied";
+    $("panelCopyLink").textContent = "Invite link copied";
+    window.setTimeout(() => {
+      $("copyRoomLink").textContent = "Copy invite link";
+      $("lobbyCopyLink").textContent = "Copy invite link";
+      $("panelCopyLink").textContent = "Copy meeting link";
+    }, 1600);
   } catch (error) {
     lobbyError.textContent = `Could not copy link: ${error.message}`;
   }
@@ -600,9 +717,9 @@ $("pipButton").addEventListener("click", async () => {
 $("participantsButton").addEventListener("click", () => openPanel("people"));
 $("chatButton").addEventListener("click", () => openPanel("chat"));
 $("closePanel").addEventListener("click", () => {
-  $("side-panel").hidden = true;
-  activePanel = "";
+  closePanel();
 });
+$("panel-backdrop").addEventListener("click", closePanel);
 $("hangupButton").addEventListener("click", leaveCall);
 $("mobileHangup").addEventListener("click", leaveCall);
 $("mobileChat").addEventListener("click", () => openPanel("chat"));
@@ -652,11 +769,13 @@ displayNameInput.value = (() => {
   }
 })();
 displayNameInput.dispatchEvent(new Event("input"));
+if (window.matchMedia("(max-width: 767px)").matches) deviceSettings.open = false;
 roomId = roomFromLocation();
 if (roomId) {
   roomCodeInput.value = roomId;
   $("room-label").textContent = `Room ${roomId}`;
   $("room-toolbar").hidden = false;
+  $("lobbyCopyLink").hidden = false;
 }
 refreshDevices().catch((error) => console.warn("Could not enumerate media devices", error));
 
