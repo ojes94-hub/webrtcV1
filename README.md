@@ -15,14 +15,26 @@ This is an upgraded version of the original WebRTC video chat service that suppo
 ```bash
 cd webrtcV1
 go mod download
-
-# run the server
-go run main.go signaling.go
-
-# open multiple browser windows/tabs to http://localhost:8080 and click "Start Call" in each
+go run .
 ```
 
-Browser console will show peer IDs and offer/answer exchanges.
+Open multiple browser windows/tabs at `http://localhost:8080` and start a call in each.
+
+Set `PORT` when running behind a platform proxy:
+
+```bash
+PORT=10000 go run .
+```
+
+## Deploying to Render
+
+1. Push this repository to GitHub.
+2. Create a new Render **Web Service**.
+3. Choose **Docker** as the runtime.
+4. Render will detect [render.yaml](./render.yaml) and [Dockerfile](./Dockerfile).
+5. Deploy; Render will terminate SSL and forward HTTPS traffic to the app over HTTP.
+
+The application listens on the `PORT` environment variable and exposes `/healthz` for health checks.
 
 ## How it works
 
