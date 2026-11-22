@@ -3,3 +3,4 @@ webrtcV1.exe
 *.crt
 *.key
 *.pem
+app.exe
