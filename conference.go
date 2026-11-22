@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -18,6 +20,7 @@ import (
 type conferenceTokenRequest struct {
 	Room     string `json:"room"`
 	Username string `json:"username"`
+	UserID   string `json:"userId,omitempty"`
 }
 
 type conferenceTokenClaims struct {
@@ -61,6 +64,11 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid username", http.StatusBadRequest)
 		return
 	}
+	userID, err := cleanConferenceUserID(input.UserID)
+	if err != nil {
+		http.Error(w, "invalid userId", http.StatusBadRequest)
+		return
+	}
 
 	apiKey := strings.TrimSpace(os.Getenv("LIVEKIT_API_KEY"))
 	apiSecret := strings.TrimSpace(os.Getenv("LIVEKIT_API_SECRET"))
@@ -70,7 +78,7 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := createConferenceToken(apiKey, apiSecret, input.Room, username, time.Now())
+	token, err := createConferenceToken(apiKey, apiSecret, input.Room, username, userID, time.Now())
 	if err != nil {
 		http.Error(w, "could not create conference token", http.StatusInternalServerError)
 		return
@@ -84,6 +92,7 @@ func parseConferenceTokenRequest(r *http.Request) (conferenceTokenRequest, error
 		return conferenceTokenRequest{
 			Room:     r.URL.Query().Get("room"),
 			Username: r.URL.Query().Get("username"),
+			UserID:   r.URL.Query().Get("userId"),
 		}, nil
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
@@ -100,14 +109,27 @@ func parseConferenceTokenRequest(r *http.Request) (conferenceTokenRequest, error
 	return input, nil
 }
 
-func createConferenceToken(apiKey, apiSecret, room, username string, now time.Time) (string, error) {
+func cleanConferenceUserID(userID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	if utf8.RuneCountInString(userID) > 128 {
+		return "", errors.New("userId exceeds 128 characters")
+	}
+	for _, char := range userID {
+		if unicode.IsControl(char) {
+			return "", errors.New("userId contains unsupported characters")
+		}
+	}
+	return userID, nil
+}
+
+func createConferenceToken(apiKey, apiSecret, room, username, userID string, now time.Time) (string, error) {
 	header, err := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	if err != nil {
 		return "", err
 	}
 	claims := conferenceTokenClaims{
 		Issuer:    apiKey,
-		Subject:   uuid.NewString(),
+		Subject:   userID,
 		Name:      username,
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
@@ -120,6 +142,9 @@ func createConferenceToken(apiKey, apiSecret, room, username string, now time.Ti
 			CanSubscribe:   true,
 			CanPublishData: true,
 		},
+	}
+	if claims.Subject == "" {
+		claims.Subject = uuid.NewString()
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {

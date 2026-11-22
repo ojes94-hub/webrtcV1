@@ -1,10 +1,15 @@
 :root {
   color-scheme: dark;
-  --background: #202124;
-  --surface-raised: #3c4043;
-  --drawer: #292a2d;
-  --accent: #8ab4f8;
-  --danger: #ea4335;
+  --bg-dark: #202124;
+  --surface-elevated: #292a2d;
+  --tile-bg: #3c4043;
+  --danger-red: #ea4335;
+  --accent-blue: #8ab4f8;
+  --background: var(--bg-dark);
+  --surface-raised: var(--tile-bg);
+  --drawer: var(--surface-elevated);
+  --accent: var(--accent-blue);
+  --danger: var(--danger-red);
   --text: #ffffff;
   --muted: #9aa0a6;
   --glass: rgba(32, 33, 36, 0.80);
@@ -93,6 +98,7 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 .video-grid::-webkit-scrollbar-thumb { border-radius: 6px; background: #5f6368; }
 .video-tile { position: relative; min-width: 0; min-height: 140px; overflow: hidden; border: 1px solid #505459; border-radius: 12px; background: var(--surface-raised); }
 .video-tile video { width: 100%; height: 100%; display: block; object-fit: cover; background: var(--surface-raised); }
+.screen-share-tile video { object-fit: contain; background: var(--bg-dark); }
 .remote-audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .local-tile video { transform: scaleX(-1); }
 .local-tile.sharing video { transform: none; }
@@ -212,6 +218,7 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
   .video-tile video { border-radius: 0; }
   #main-stage .remote-tile { width: 100%; height: 100%; min-height: 0; }
   #main-stage .remote-tile video { object-fit: cover; }
+  #main-stage .screen-share-tile video { object-fit: contain; }
   .mobile-overflow-hidden { display: none; }
   .mobile-overflow-pill:not([hidden]) { z-index: 4; position: absolute; bottom: 12px; left: 50%; display: block; border-radius: 20px; background: var(--glass); padding: 6px 12px; color: var(--text); font-size: 12px; transform: translateX(-50%); }
   #local-tile { z-index: 15; position: fixed; right: 14px; bottom: calc(86px + env(safe-area-inset-bottom)); width: 96px; height: 140px; border: 1.5px solid rgba(255,255,255,.15); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: auto; }

@@ -19,6 +19,21 @@ const deviceSettings = document.querySelector(".device-settings");
 const remoteTiles = new Map();
 const participantById = new Map();
 const connectionStates = new Map();
+const screenShareSuffix = "\u0000screen-share";
+
+function screenShareTileKey(peerId) {
+  return `${peerId}${screenShareSuffix}`;
+}
+
+function isScreenShareTileKey(tileKey) {
+  return tileKey.endsWith(screenShareSuffix);
+}
+
+function participantIdForTileKey(tileKey) {
+  return isScreenShareTileKey(tileKey)
+    ? tileKey.slice(0, -screenShareSuffix.length)
+    : tileKey;
+}
 
 let roomId = "";
 let previewStream = null;
@@ -312,9 +327,10 @@ function updateMobileGridLayout() {
   $("mobile-overflow-pill").hidden = !mobile || count <= 5;
   $("mobile-overflow-pill").textContent = count > 5 ? `+${count - 5} more` : "";
   if (mobile && count > 0) {
-    const selected = remotes.find(([peerId]) => peerId === mobilePinnedPeerId) ||
-      remotes.find(([peerId]) => participantById.get(peerId)?.presenting) ||
-      remotes.find(([peerId]) => participantById.get(peerId)?.speaking) ||
+    const selected = remotes.find(([tileKey]) => tileKey === mobilePinnedPeerId) ||
+      remotes.find(([tileKey]) => isScreenShareTileKey(tileKey)) ||
+      remotes.find(([tileKey]) => participantById.get(participantIdForTileKey(tileKey))?.presenting) ||
+      remotes.find(([tileKey]) => participantById.get(participantIdForTileKey(tileKey))?.speaking) ||
       remotes[0];
     stage.append(selected[1]);
     $("active-empty").hidden = true;
@@ -330,20 +346,23 @@ function updateMobileGridLayout() {
   }
 }
 
-function updateRemoteStream(peerId, stream) {
-  let tile = remoteTiles.get(peerId);
+function updateRemoteStream(peerId, stream, source = "camera") {
+  const isScreenShare = source === "screen-share";
+  const tileKey = isScreenShare ? screenShareTileKey(peerId) : peerId;
+  let tile = remoteTiles.get(tileKey);
   if (!stream) {
     tile?.remove();
-    remoteTiles.delete(peerId);
-    connectionStates.delete(peerId);
+    remoteTiles.delete(tileKey);
+    if (!isScreenShare) connectionStates.delete(peerId);
     $("empty-call").hidden = remoteTiles.size > 0;
     updateMobileGridLayout();
     return;
   }
   if (!tile) {
     tile = document.createElement("article");
-    tile.className = "video-tile remote-tile";
+    tile.className = `video-tile remote-tile${isScreenShare ? " screen-share-tile" : ""}`;
     tile.dataset.peerId = peerId;
+    tile.dataset.trackSource = source;
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
@@ -373,10 +392,13 @@ function updateRemoteStream(peerId, stream) {
     caption.className = "tile-caption";
     const name = document.createElement("span");
     name.className = "participant-name";
-    name.textContent = participant?.name || "Guest";
+    name.textContent = isScreenShare
+      ? `${participant?.name || "Guest"} · Presenting`
+      : participant?.name || "Guest";
     const mic = document.createElement("span");
     mic.className = "mic-state";
     mic.textContent = participant?.muted ? "Mic off" : "Mic on";
+    mic.hidden = isScreenShare;
     caption.append(name, mic);
     const hand = document.createElement("span");
     hand.className = "hand-badge";
@@ -387,7 +409,7 @@ function updateRemoteStream(peerId, stream) {
     tile.classList.toggle("speaking", Boolean(participant?.speaking));
     tile.classList.toggle("video-off", Boolean(participant?.videoOff));
     videoGrid.append(tile);
-    remoteTiles.set(peerId, tile);
+    remoteTiles.set(tileKey, tile);
     $("empty-call").hidden = true;
     if (speakerDeviceId && typeof audio.setSinkId === "function") {
       audio.setSinkId(speakerDeviceId).catch((error) => console.warn("Could not select speaker device", error));
@@ -464,6 +486,10 @@ function updateParticipants(participants) {
         }
         tile.querySelector(".hand-badge").hidden = !participant.raisedHand;
       }
+      const screenTile = remoteTiles.get(screenShareTileKey(participant.id));
+      if (screenTile) {
+        screenTile.querySelector(".participant-name").textContent = `${participant.name} · Presenting`;
+      }
     }
     const item = document.createElement("li");
     item.className = "participant-item";
@@ -484,7 +510,9 @@ function updateParticipants(participants) {
     $("presenter-name").textContent = `${presenter.name} is presenting`;
     $("presenter-avatar").textContent = (presenter.name || "?").slice(0, 1).toUpperCase();
     if (window.matchMedia("(min-width: 768px)").matches) {
-      const presenterTile = presenter.local ? $("local-tile") : remoteTiles.get(presenter.id);
+      const presenterTile = presenter.local
+        ? $("local-tile")
+        : remoteTiles.get(screenShareTileKey(presenter.id)) || remoteTiles.get(presenter.id);
       if (presenterTile && presenterTile.parentElement !== $("main-stage")) {
         document.querySelectorAll(".main-stage > .video-tile").forEach((tile) => {
           tile.classList.remove("pinned");
@@ -565,7 +593,8 @@ function togglePinnedTile(tile) {
     if (tile.id === "local-tile") withCall(() => callSession.switchCamera());
     else {
       const peerId = tile.dataset.peerId;
-      mobilePinnedPeerId = mobilePinnedPeerId === peerId ? "" : peerId;
+      const tileKey = tile.dataset.trackSource === "screen-share" ? screenShareTileKey(peerId) : peerId;
+      mobilePinnedPeerId = mobilePinnedPeerId === tileKey ? "" : tileKey;
       updateMobileGridLayout();
     }
     return;

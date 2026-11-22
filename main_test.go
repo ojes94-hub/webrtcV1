@@ -20,7 +20,7 @@ func TestHandleConferenceTokenReturnsSignedJoinToken(t *testing.T) {
 	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
 	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
 	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
-	req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(`{"room":"team-room","username":"Alice"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(`{"room":"team-room","username":"Alice","userId":"native-user-42"}`))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 
@@ -60,10 +60,71 @@ func TestHandleConferenceTokenReturnsSignedJoinToken(t *testing.T) {
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		t.Fatal(err)
 	}
-	if claims.Issuer != "test-api-key" || claims.Subject == "" || claims.Name != "Alice" ||
+	if claims.Issuer != "test-api-key" || claims.Subject != "native-user-42" || claims.Name != "Alice" ||
 		!claims.Video.RoomJoin || claims.Video.Room != "team-room" ||
 		!claims.Video.CanPublish || !claims.Video.CanSubscribe || !claims.Video.CanPublishData {
 		t.Fatalf("unexpected token claims: %+v", claims)
+	}
+}
+
+func TestAPIEndpointsSetCORSHeadersAndHandlePreflight(t *testing.T) {
+	handler, err := newHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/conference-token", nil)
+	req.Header.Set("Origin", "https://native-client.example")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want %d", res.Code, http.StatusNoContent)
+	}
+	assertCORSHeaders(t, res)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(`{"room":"team-room","username":"Alice"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("conference token status = %d, want %d", res.Code, http.StatusOK)
+	}
+	assertCORSHeaders(t, res)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/ice-servers", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("ICE server status = %d, want %d", res.Code, http.StatusOK)
+	}
+	assertCORSHeaders(t, res)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/unregistered", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("unknown API status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+	assertCORSHeaders(t, res)
+}
+
+func assertCORSHeaders(t *testing.T, res *httptest.ResponseRecorder) {
+	t.Helper()
+	want := map[string]string{
+		"Access-Control-Allow-Origin":  "*",
+		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+	}
+	for header, value := range want {
+		if got := res.Header().Get(header); got != value {
+			t.Errorf("%s = %q, want %q", header, got, value)
+		}
 	}
 }
 
@@ -321,6 +382,32 @@ func TestHandleICEServersUsesShortLivedTurnCredentials(t *testing.T) {
 	wantCredential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	if response.ICEServers[1].Credential != wantCredential {
 		t.Fatal("TURN credential does not match the coturn REST signature")
+	}
+}
+
+func TestHandleICEServersAcceptsTURNURLAlias(t *testing.T) {
+	t.Setenv("TURN_URLS", "")
+	t.Setenv("TURN_URL", "turn:native.example.test:3478")
+	t.Setenv("TURN_SHARED_SECRET", "")
+	t.Setenv("TURN_USERNAME", "native-user")
+	t.Setenv("TURN_CREDENTIAL", "native-password")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ice-servers", nil)
+	res := httptest.NewRecorder()
+	handleICEServers(res, req)
+
+	var response struct {
+		ICEServers []iceServer `json:"iceServers"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ICEServers) != 2 ||
+		len(response.ICEServers[1].URLs) != 1 ||
+		response.ICEServers[1].URLs[0] != "turn:native.example.test:3478" ||
+		response.ICEServers[1].Username != "native-user" ||
+		response.ICEServers[1].Credential != "native-password" {
+		t.Fatalf("unexpected TURN_URL response: %#v", response.ICEServers)
 	}
 }
 

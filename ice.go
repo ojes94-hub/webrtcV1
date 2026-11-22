@@ -29,6 +29,9 @@ func handleICEServers(w http.ResponseWriter, r *http.Request) {
 		{URLs: []string{"stun:stun.l.google.com:19302"}},
 	}
 	turnURLs := splitCSV(os.Getenv("TURN_URLS"))
+	if len(turnURLs) == 0 {
+		turnURLs = splitCSV(os.Getenv("TURN_URL"))
+	}
 	if len(turnURLs) > 0 {
 		if secret := strings.TrimSpace(os.Getenv("TURN_SHARED_SECRET")); secret != "" {
 			ttl := turnCredentialTTL(os.Getenv("TURN_CREDENTIAL_TTL"))

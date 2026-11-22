@@ -64,18 +64,32 @@ export class ConferenceSession {
 
   bindEvents() {
     const LK = window.LivekitClient;
-    this.room.on(LK.RoomEvent.ParticipantConnected, () => this.publishParticipants());
+    this.room.on(LK.RoomEvent.ParticipantConnected, () => {
+      this.publishParticipants();
+      this.publishLocalState().catch((error) => this.onStatus(`Could not sync participant state: ${error.message}`));
+    });
     this.room.on(LK.RoomEvent.ParticipantDisconnected, (participant) => {
       this.remoteTracks.delete(participant.identity);
       this.onRemoteStream(participant.identity, null);
+      this.onRemoteStream(participant.identity, null, "screen-share");
       this.participantStates.delete(participant.identity);
       this.publishParticipants();
     });
     this.room.on(LK.RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      const tracks = this.remoteTracks.get(participant.identity) || new Map();
-      tracks.set(publication.trackSid, track.mediaStreamTrack);
+      const tracks = this.remoteTracks.get(participant.identity) || {
+        camera: new Map(),
+        screenShare: new Map()
+      };
+      const isScreenShare = publication.source === LK.Track.Source.ScreenShare ||
+        publication.source === LK.Track.Source.ScreenShareAudio;
+      const trackGroup = isScreenShare ? tracks.screenShare : tracks.camera;
+      trackGroup.set(publication.trackSid, track.mediaStreamTrack);
       this.remoteTracks.set(participant.identity, tracks);
-      this.onRemoteStream(participant.identity, new MediaStream([...tracks.values()]));
+      this.onRemoteStream(
+        participant.identity,
+        new MediaStream([...trackGroup.values()]),
+        isScreenShare ? "screen-share" : "camera"
+      );
       this.publishParticipants();
       if (publication.source === LK.Track.Source.ScreenShare) {
         this.setParticipantState(participant.identity, { presenting: true });
@@ -83,11 +97,21 @@ export class ConferenceSession {
     });
     this.room.on(LK.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
       const tracks = this.remoteTracks.get(participant.identity);
-      tracks?.delete(publication.trackSid);
-      if (tracks?.size) this.onRemoteStream(participant.identity, new MediaStream([...tracks.values()]));
-      else {
+      const isScreenShare = publication.source === LK.Track.Source.ScreenShare ||
+        publication.source === LK.Track.Source.ScreenShareAudio;
+      const trackGroup = isScreenShare ? tracks?.screenShare : tracks?.camera;
+      trackGroup?.delete(publication.trackSid);
+      if (trackGroup?.size) {
+        this.onRemoteStream(
+          participant.identity,
+          new MediaStream([...trackGroup.values()]),
+          isScreenShare ? "screen-share" : "camera"
+        );
+      } else {
+        this.onRemoteStream(participant.identity, null, isScreenShare ? "screen-share" : "camera");
+      }
+      if (tracks && tracks.camera.size === 0 && tracks.screenShare.size === 0) {
         this.remoteTracks.delete(participant.identity);
-        this.onRemoteStream(participant.identity, null);
       }
       if (publication.source === LK.Track.Source.ScreenShare) {
         this.setParticipantState(participant.identity, { presenting: false });
@@ -336,8 +360,10 @@ export class ConferenceSession {
 
   async leave() {
     await this.room?.disconnect();
-    for (const tracks of this.remoteTracks.values()) {
-      tracks.forEach((track) => track.stop());
+    for (const trackGroups of this.remoteTracks.values()) {
+      for (const tracks of Object.values(trackGroups)) {
+        tracks.forEach((track) => track.stop());
+      }
     }
     this.remoteTracks.clear();
     this.localStream?.getTracks().forEach((track) => track.stop());

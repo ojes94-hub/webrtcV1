@@ -27,6 +27,7 @@ go build -tags netgo -ldflags "-s -w" -o app .
 | --- | --- | --- |
 | `PORT` | No | HTTP listen port; defaults to `8080`. Render provides this automatically. |
 | `TURN_URLS` | No | Comma-separated TURN/TURNS URLs, e.g. `turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp`. |
+| `TURN_URL` | No | Single TURN/TURNS URL alias for native clients; used when `TURN_URLS` is unset. |
 | `TURN_SHARED_SECRET` | No | Coturn REST shared secret. The API creates time-limited HMAC-SHA1 credentials; the secret itself is never returned. |
 | `TURN_CREDENTIAL_TTL` | No | Lifetime in seconds for temporary TURN credentials (60–86400; defaults to `3600`). |
 | `TURN_USERNAME` | No | Static TURN username fallback if the TURN provider does not support REST credentials. |
@@ -35,9 +36,9 @@ go build -tags netgo -ldflags "-s -w" -o app .
 | `LIVEKIT_API_KEY` | For conferences | LiveKit project API key. |
 | `LIVEKIT_API_SECRET` | For conferences | LiveKit API secret; used only by the server to sign short-lived participant tokens. |
 
-`GET /api/ice-servers` returns the public STUN server and any configured TURN server credentials with `Cache-Control: no-store`. Credentials are necessarily visible to the browser using them; use the shared-secret mode for expiring credentials rather than embedding a permanent TURN password in the app.
+`GET /api/ice-servers` returns the public STUN server and any configured TURN server credentials with `Cache-Control: no-store`. It accepts either `TURN_URLS` or the single-URL `TURN_URL` alias. Credentials are necessarily visible to clients using them; use the shared-secret mode for expiring credentials rather than embedding a permanent TURN password in the app.
 
-`POST /api/conference-token` accepts `{ "room": "...", "username": "..." }` and returns a short-lived signed token and LiveKit URL. The API secret is never sent to browsers. Configure all three `LIVEKIT_*` variables to enable conference rooms. Invite links retain the selected call mode.
+`POST /api/conference-token` accepts `{ "room": "...", "username": "...", "userId": "..." }` and returns a short-lived signed token and LiveKit URL. `userId` is optional; when omitted, the server creates an identity. API endpoints allow cross-origin requests for native clients. The API secret is never sent to clients. Configure all three `LIVEKIT_*` variables to enable conference rooms. Invite links retain the selected call mode.
 
 ## Render deployment
 
