@@ -1,66 +1,117 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-
-  <title>Video Call Pro - Dynamic Pinning</title>
-  <link rel="stylesheet" href="css/vc.css">
-  <link href="https://fonts.googleapis.com" rel="stylesheet">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10141c">
+  <title>Meet — private video rooms</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/main.js"></script>
 </head>
 <body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Meet home"><span class="brand-mark">m</span>meet</a>
+    <div id="room-toolbar" class="room-toolbar" hidden>
+      <span id="room-label" class="room-label"></span>
+      <button id="copyRoomLink" class="button button-quiet" type="button">Copy invite link</button>
+    </div>
+    <div id="connection-indicator" class="connection-indicator" hidden>
+      <span class="connection-dot"></span><span id="connection-label">Connecting</span>
+    </div>
+  </header>
 
-  <div class="content-wrapper">
-    <main class="video-grid fullscreen-init" id="videos">
-      <!-- Initial fullscreen local video before call -->
-      <div class="video-box">
-        <div class="video-tile" id="tile-susan">
-          <button class="minimize-btn" onclick="toggleMinimize(event)">
-            <i data-lucide="minimize-2"></i>
-          </button>
-          <video class="video" id="localVideo" autoplay muted playsinline></video>
-          <div class="mute-indicator"><i data-lucide="mic-off"></i></div>
-          <div class="tile-overlay"><span>Susan Miko (Host)</span><i data-lucide="mic"></i></div>
-        </div>
-        <div class="status">
-          <p id="status">Encrypted</p>
-          <p id="connectionState">Connection: Secured</p>
-        </div>
-      </div>
-      <!-- Remote video boxes will be dynamically appended here by JS -->
-    </main>
+  <main id="lobby" class="lobby">
+    <section class="lobby-copy">
+      <p class="eyebrow">Good conversations start here</p>
+      <h1>Video calls,<br><span>without the fuss.</span></h1>
+      <p class="intro">Create a private room or join a meeting with a code. No account needed.</p>
 
-    <aside class="sidebar hidden" id="sidebar">
-      <div class="sidebar-header">
-        <button class="tab-btn active" onclick="switchTab('chat', this)">Chat</button>
-        <button class="tab-btn" onclick="switchTab('people', this)">People</button>
+      <div class="meeting-actions">
+        <button id="createMeeting" class="button button-primary button-large" type="button">Create a new meeting</button>
+        <div class="divider"><span>or join with a code</span></div>
+        <form id="joinForm" class="join-form">
+          <label for="roomCode">Meeting code</label>
+          <div class="join-row">
+            <input id="roomCode" name="roomCode" autocomplete="off" placeholder="Paste a room code" maxlength="64">
+            <button class="button button-secondary" type="submit">Join room</button>
+          </div>
+        </form>
+        <label class="name-field" for="displayName">Your name
+          <input id="displayName" name="displayName" autocomplete="name" maxlength="40" placeholder="Enter your name">
+        </label>
+        <p id="lobby-error" class="error-message" role="alert"></p>
       </div>
-      <div id="chat-section" class="sidebar-content active">
-        <div class="messages"><p><strong>System:</strong> Welcome to the call.</p></div>
-        <div class="chat-input">
-          <input type="text" placeholder="Send a message...">
-          <button class="send-btn"><i data-lucide="send"></i></button>
-        </div>
-      </div>
-      <div id="people-section" class="sidebar-content">
-        <div class="people-list"></div>
-      </div>
-    </aside>
-  </div>
+    </section>
 
-<footer class="controls-bar">
-    <button class="icon-btn" id="startCallBtn"><i data-lucide="phone"></i></button>
-    <button class="icon-btn" id="toggleAudioBtn"><i data-lucide="mic"></i></button>
-    <button class="icon-btn" id="toggleVideoBtn"><i data-lucide="video"></i></button>
-    <button class="icon-btn"><i data-lucide="hand"></i></button>
-    <button class="icon-btn"><i data-lucide="monitor"></i></button>
-    <button class="icon-btn" onclick="toggleSidebar()"><i data-lucide="message-square"></i></button>
-    <button class="end-call-btn" id="hangupBtn"><i data-lucide="phone-off"></i></button>
-  </footer>
-  
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <script src="js/vc.js" defer></script>
-  <script src="js/mainvc.js" defer></script>
+    <section class="preview-card" aria-label="Camera and microphone preview">
+      <div class="preview-heading">
+        <div><p class="eyebrow">Before you join</p><h2>Check your setup</h2></div>
+        <span id="preview-state" class="preview-state">Camera off</span>
+      </div>
+      <div class="preview-video-wrap">
+        <video id="previewVideo" autoplay muted playsinline></video>
+        <div id="preview-placeholder" class="preview-placeholder">
+          <span class="avatar-placeholder">you</span>
+          <button id="startPreview" class="button button-secondary" type="button">Enable camera preview</button>
+        </div>
+        <div id="preview-name" class="preview-name">Your name</div>
+      </div>
+      <div class="device-grid">
+        <label>Camera<select id="cameraSelect"><option value="">Default camera</option></select></label>
+        <label>Microphone<select id="microphoneSelect"><option value="">Default microphone</option></select></label>
+        <label>Speaker<select id="speakerSelect"><option value="">Default speaker</option></select></label>
+      </div>
+      <p class="privacy-note">Your camera and microphone are only shared after you join.</p>
+    </section>
+  </main>
+
+  <main id="call-view" class="call-view" hidden>
+    <div class="call-main">
+      <section id="video-grid" class="video-grid" aria-label="Meeting participants">
+        <article id="local-tile" class="video-tile local-tile" data-peer-id="local">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <div class="tile-shade"></div>
+          <div class="tile-caption"><span id="localName">You</span><span id="localMicState" class="mic-state">Mic on</span></div>
+        </article>
+        <div id="empty-call" class="empty-call">Waiting for someone to join…</div>
+      </section>
+
+      <aside id="side-panel" class="side-panel" hidden>
+        <div class="panel-heading">
+          <h2 id="panel-title">Participants</h2>
+          <button id="closePanel" class="icon-button" type="button" aria-label="Close panel">×</button>
+        </div>
+        <section id="participants-panel" class="panel-content">
+          <p id="participant-count" class="panel-subtitle">1 person</p>
+          <ul id="participant-list" class="participant-list"></ul>
+        </section>
+        <section id="chat-panel" class="panel-content chat-panel" hidden>
+          <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+          <form id="chat-form" class="chat-form">
+            <label class="sr-only" for="chat-input">Message</label>
+            <input id="chat-input" maxlength="2000" autocomplete="off" placeholder="Write a message…">
+            <button class="button button-primary" type="submit">Send</button>
+          </form>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="call-controls">
+      <div class="call-status">
+        <strong id="call-room-name">Meeting</strong>
+        <span id="call-connection-state">Connecting…</span>
+      </div>
+      <div class="control-group">
+        <button id="audioToggle" class="control-button" type="button"><span class="control-icon">◖</span><span>Mute</span></button>
+        <button id="videoToggle" class="control-button" type="button"><span class="control-icon">▣</span><span>Camera</span></button>
+        <button id="screenShare" class="control-button" type="button"><span class="control-icon">⇧</span><span>Share</span></button>
+        <button id="switchCamera" class="control-button" type="button"><span class="control-icon">↻</span><span>Flip</span></button>
+        <button id="pipButton" class="control-button" type="button"><span class="control-icon">▢</span><span>Picture-in-picture</span></button>
+        <button id="participantsButton" class="control-button" type="button"><span class="control-icon">♙</span><span>People</span><b id="participant-badge" class="badge" hidden>1</b></button>
+        <button id="chatButton" class="control-button" type="button"><span class="control-icon">▤</span><span>Chat</span><b id="unread-badge" class="badge" hidden>0</b></button>
+        <button id="hangupButton" class="control-button control-hangup" type="button"><span class="control-icon">☎</span><span>Leave</span></button>
+      </div>
+    </footer>
+  </main>
 </body>
 </html>

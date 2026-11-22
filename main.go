@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"flag"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -24,26 +27,65 @@ func main() {
 	addr := flag.String("addr", defaultAddr, "listen address (host:port)")
 	flag.Parse()
 
+	handler, err := newHandler()
+	if err != nil {
+		log.Fatalf("prepare HTTP handler: %v", err)
+	}
+
+	log.Printf("webrtcV1 server listening on %s", *addr)
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	shutdown, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	select {
+	case err := <-serverErrors:
+		if err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	case <-shutdown.Done():
+		roomManager.shutdownAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+			_ = server.Close()
+		}
+		if err := <-serverErrors; err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error during shutdown: %v", err)
+		}
+	}
+}
+
+func newHandler() (http.Handler, error) {
 	publicFS, err := fs.Sub(publicFiles, "public")
 	if err != nil {
-		log.Fatalf("prepare public assets: %v", err)
+		return nil, err
 	}
 	fileServer := http.FileServer(http.FS(publicFS))
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveIndex)
+	mux.HandleFunc("/room/", serveIndex)
 	mux.HandleFunc("/healthz", serveHealth)
 	mux.HandleFunc("/ws", handleSignaling)
+	mux.HandleFunc("/api/ice-servers", handleICEServers)
 	mux.Handle("/css/", fileServer)
 	mux.Handle("/js/", fileServer)
 	mux.Handle("/images/", fileServer)
-
-	log.Printf("webrtcV1 server listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	return mux, nil
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && !isRoomPath(r.URL.Path) {
 		http.NotFound(w, r)
 		return
 	}
@@ -54,6 +96,13 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(data))
+}
+
+func isRoomPath(path string) bool {
+	if !strings.HasPrefix(path, "/room/") {
+		return false
+	}
+	return validRoomID(strings.TrimPrefix(path, "/room/"))
 }
 
 func serveHealth(w http.ResponseWriter, r *http.Request) {

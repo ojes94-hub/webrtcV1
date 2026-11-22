@@ -1,6 +1,7 @@
 .git
 .github
 *.exe
+app
 *.crt
 *.key
 *.pem
