@@ -339,6 +339,7 @@ function updateRemoteStream(peerId, stream) {
     audio.className = "remote-audio";
     audio.autoplay = true;
     audio.playsInline = true;
+    const participant = participantById.get(peerId);
     video.addEventListener("click", () => {
       video.play().catch(() => {});
       audio.play().catch((error) => {
@@ -358,7 +359,6 @@ function updateRemoteStream(peerId, stream) {
     caption.className = "tile-caption";
     const name = document.createElement("span");
     name.className = "participant-name";
-    const participant = participantById.get(peerId);
     name.textContent = participant?.name || "Guest";
     const mic = document.createElement("span");
     mic.className = "mic-state";
