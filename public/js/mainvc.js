@@ -3,6 +3,7 @@ let wsConnection;
 let clientId;
 
 const peerConnections = {}; // peerId -> RTCPeerConnection
+const pendingCandidates = {};
 
 const localVideo = document.getElementById('localVideo');
 const statusEl = document.getElementById('status');
@@ -161,8 +162,9 @@ function connectWebSocket() {
                 clientId = msg.data.id;
                 updateStatus(`Joined as ${clientId}`);
                 for (const pid of msg.data.peers || []) {
-                    // when we ourselves join we always kick off offers to existing peers
-                    await initiateOffer(pid);
+                    if (clientId < pid) {
+                        await initiateOffer(pid);
+                    }
                 }
                 break;
             case 'new-peer':
@@ -371,7 +373,10 @@ function createPeerConnection(peerId) {
     };
 
     pc.onconnectionstatechange = () => {
-        updateConnectionState(pc.connectionState);
+        updateConnectionState(`${pc.connectionState} (ICE: ${pc.iceConnectionState})`);
+        if (pc.connectionState === 'failed') {
+            updateStatus('Peer connection failed; a TURN relay may be required on this network');
+        }
     };
 
     peerConnections[peerId] = pc;
@@ -396,6 +401,7 @@ async function handleOffer(data, source) {
     const pc = peerConnections[source] || createPeerConnection(source);
     const offerDesc = new RTCSessionDescription({ type: 'offer', sdp: data.sdp });
     await pc.setRemoteDescription(offerDesc);
+    await flushPendingCandidates(source, pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     send({ type: 'answer', target: source, data: { sdp: answer.sdp }});
@@ -407,19 +413,39 @@ async function handleAnswer(data, source) {
     if (pc) {
         const ans = new RTCSessionDescription({ type: 'answer', sdp: data.sdp });
         await pc.setRemoteDescription(ans);
-        updateStatus(`Connection established with ${source}`);
+        await flushPendingCandidates(source, pc);
+        updateStatus(`Peer negotiation complete with ${source}`);
     }
 }
 
 async function handleCandidate(data, source) {
     const pc = peerConnections[source];
-    if (pc) {
-        const candidate = new RTCIceCandidate({
+    if (!pc || !pc.remoteDescription) {
+        if (!pendingCandidates[source]) pendingCandidates[source] = [];
+        pendingCandidates[source].push(data);
+        return;
+    }
+    await addCandidate(pc, data);
+}
+
+async function flushPendingCandidates(peerId, pc) {
+    const candidates = pendingCandidates[peerId] || [];
+    delete pendingCandidates[peerId];
+    for (const data of candidates) {
+        await addCandidate(pc, data);
+    }
+}
+
+async function addCandidate(pc, data) {
+    try {
+        await pc.addIceCandidate(new RTCIceCandidate({
             candidate: data.candidate,
             sdpMLineIndex: data.sdpMLineIndex,
             sdpMid: data.sdpMid
-        });
-        await pc.addIceCandidate(candidate);
+        }));
+    } catch (err) {
+        console.error('Failed to add ICE candidate:', err);
+        updateStatus('Failed to establish peer network route');
     }
 }
 
@@ -429,6 +455,7 @@ function removePeer(peerId) {
         pc.close();
         delete peerConnections[peerId];
     }
+    delete pendingCandidates[peerId];
     const elem = document.getElementById('remote_' + peerId);
     if (elem && elem.parentElement) {
         elem.parentElement.remove();
