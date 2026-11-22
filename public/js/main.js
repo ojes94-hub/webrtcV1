@@ -26,6 +26,8 @@ let activePanel = "";
 let audioEnabled = true;
 let videoEnabled = true;
 let speakerDeviceId = "";
+let raisedHand = false;
+let captionsEnabled = false;
 
 function isValidRoomCode(value) {
   return /^[A-Za-z0-9_-]{3,64}$/.test(value);
@@ -128,6 +130,7 @@ async function togglePreview() {
     previewPlaceholder.hidden = false;
     previewState.textContent = "Camera off";
     $("startPreview").textContent = "Enable camera preview";
+    $("startPreview").setAttribute("aria-pressed", "false");
     return;
   }
   try {
@@ -136,6 +139,7 @@ async function togglePreview() {
     previewPlaceholder.hidden = true;
     previewState.textContent = "Camera and mic ready";
     $("startPreview").textContent = "Turn preview off";
+    $("startPreview").setAttribute("aria-pressed", "true");
     await refreshDevices();
   } catch (error) {
     lobbyError.textContent = `Could not start preview: ${error.message}`;
@@ -163,6 +167,10 @@ async function joinRoom(room) {
   remoteTiles.clear();
   participantById.clear();
   document.querySelectorAll(".remote-tile").forEach((tile) => tile.remove());
+  document.querySelectorAll(".main-stage > .video-tile").forEach((tile) => {
+    tile.classList.remove("pinned");
+    videoGrid.append(tile);
+  });
   videoGrid.classList.remove("has-pinned");
   $("empty-call").hidden = false;
   try {
@@ -241,6 +249,13 @@ function updatePeerConnectionState({ peerId, connection, ice }) {
   }
 }
 
+function updateMobileGridLayout() {
+  const count = remoteTiles.size;
+  videoGrid.classList.remove("remote-count-1", "remote-count-2", "remote-count-3", "remote-count-4");
+  if (count > 0) videoGrid.classList.add(`remote-count-${Math.min(count, 4)}`);
+  $("empty-call").hidden = count > 0;
+}
+
 function updateRemoteStream(peerId, stream) {
   let tile = remoteTiles.get(peerId);
   if (!stream) {
@@ -248,6 +263,7 @@ function updateRemoteStream(peerId, stream) {
     remoteTiles.delete(peerId);
     connectionStates.delete(peerId);
     $("empty-call").hidden = remoteTiles.size > 0;
+    updateMobileGridLayout();
     return;
   }
   if (!tile) {
@@ -282,7 +298,11 @@ function updateRemoteStream(peerId, stream) {
     mic.className = "mic-state";
     mic.textContent = participant?.muted ? "Mic off" : "Mic on";
     caption.append(name, mic);
-    tile.append(video, audio, shade, caption);
+    const hand = document.createElement("span");
+    hand.className = "hand-badge";
+    hand.textContent = "✋";
+    hand.hidden = true;
+    tile.append(video, audio, shade, caption, hand);
     tile.addEventListener("click", () => togglePinnedTile(tile));
     tile.classList.toggle("speaking", Boolean(participant?.speaking));
     tile.classList.toggle("video-off", Boolean(participant?.videoOff));
@@ -292,6 +312,13 @@ function updateRemoteStream(peerId, stream) {
     if (speakerDeviceId && typeof audio.setSinkId === "function") {
       audio.setSinkId(speakerDeviceId).catch((error) => console.warn("Could not select speaker device", error));
     }
+  }
+  updateMobileGridLayout();
+  if (window.matchMedia("(min-width: 768px)").matches && remoteTiles.size === 1 &&
+      !$("main-stage").querySelector(".video-tile")) {
+    tile.classList.add("pinned");
+    $("main-stage").append(tile);
+    $("active-empty").hidden = true;
   }
   const video = tile.querySelector("video");
   const audio = tile.querySelector(".remote-audio");
@@ -326,6 +353,7 @@ function updateParticipants(participants) {
       $("localMicState").textContent = participant.muted ? "Mic off" : "Mic on";
       $("local-tile").classList.toggle("speaking", Boolean(participant.speaking));
       $("local-tile").classList.toggle("video-off", Boolean(participant.videoOff));
+      $("local-hand").hidden = !participant.raisedHand;
     } else {
       const tile = remoteTiles.get(participant.id);
       if (tile) {
@@ -333,6 +361,7 @@ function updateParticipants(participants) {
         tile.querySelector(".mic-state").textContent = participant.muted ? "Mic off" : "Mic on";
         tile.classList.toggle("speaking", Boolean(participant.speaking));
         tile.classList.toggle("video-off", Boolean(participant.videoOff));
+        tile.querySelector(".hand-badge").hidden = !participant.raisedHand;
       }
     }
     const item = document.createElement("li");
@@ -348,6 +377,24 @@ function updateParticipants(participants) {
     item.append(avatar, label, meta);
     list.append(item);
   });
+  const presenter = participants.find((participant) => participant.presenting);
+  $("presenter-banner").hidden = !presenter;
+  if (presenter) {
+    $("presenter-name").textContent = `${presenter.name} is presenting`;
+    $("presenter-avatar").textContent = (presenter.name || "?").slice(0, 1).toUpperCase();
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      const presenterTile = presenter.local ? $("local-tile") : remoteTiles.get(presenter.id);
+      if (presenterTile && presenterTile.parentElement !== $("main-stage")) {
+        document.querySelectorAll(".main-stage > .video-tile").forEach((tile) => {
+          tile.classList.remove("pinned");
+          videoGrid.append(tile);
+        });
+        presenterTile.classList.add("pinned");
+        $("main-stage").append(presenterTile);
+        $("active-empty").hidden = true;
+      }
+    }
+  }
 }
 
 function updateSpeaker(peerId, speaking) {
@@ -381,9 +428,11 @@ function openPanel(panel) {
   }
   activePanel = panel;
   sidePanel.hidden = false;
-  $("participants-panel").hidden = panel !== "people";
+  $("participants-panel").hidden = panel !== "people" && panel !== "info";
   $("chat-panel").hidden = panel !== "chat";
-  $("panel-title").textContent = panel === "people" ? "Participants" : "Room chat";
+  $("panel-title").textContent =
+    panel === "people" ? "Participants" :
+    panel === "info" ? "Meeting info" : "Room chat";
   if (panel === "chat") {
     unreadMessages = 0;
     $("unread-badge").hidden = true;
@@ -392,18 +441,32 @@ function openPanel(panel) {
 }
 
 function togglePinnedTile(tile) {
+  if (window.matchMedia("(max-width: 767px)").matches) {
+    if (tile.id === "local-tile") withCall(() => callSession.switchCamera());
+    return;
+  }
   const isPinned = tile.classList.contains("pinned");
-  document.querySelectorAll(".video-tile.pinned").forEach((item) => item.classList.remove("pinned"));
-  videoGrid.classList.toggle("has-pinned", !isPinned);
-  if (!isPinned) tile.classList.add("pinned");
+  document.querySelectorAll(".main-stage > .video-tile").forEach((item) => {
+    item.classList.remove("pinned");
+    videoGrid.append(item);
+  });
+  $("active-empty").hidden = true;
+  if (!isPinned) {
+    tile.classList.add("pinned");
+    $("main-stage").append(tile);
+  } else {
+    $("active-empty").hidden = false;
+  }
 }
 
 function updateControlState() {
   $("audioToggle").setAttribute("aria-pressed", String(!audioEnabled));
   $("audioToggle").querySelector("span:last-of-type").textContent = audioEnabled ? "Mute" : "Unmute";
+  $("mobileAudio").setAttribute("aria-pressed", String(!audioEnabled));
   $("localMicState").textContent = audioEnabled ? "Mic on" : "Mic off";
   $("videoToggle").setAttribute("aria-pressed", String(!videoEnabled));
   $("videoToggle").querySelector("span:last-of-type").textContent = videoEnabled ? "Camera" : "Camera off";
+  $("mobileVideo").setAttribute("aria-pressed", String(!videoEnabled));
   $("local-tile").classList.toggle("video-off", !videoEnabled);
 }
 
@@ -425,6 +488,7 @@ async function leaveCall() {
   connectionStates.clear();
   document.querySelectorAll(".remote-tile").forEach((tile) => tile.remove());
   videoGrid.classList.remove("has-pinned");
+  updateMobileGridLayout();
   $("empty-call").hidden = false;
   $("side-panel").hidden = true;
   activePanel = "";
@@ -435,6 +499,9 @@ async function leaveCall() {
   $("local-tile").classList.remove("sharing", "pinned", "video-off", "speaking");
   $("participant-list").replaceChildren();
   $("participant-badge").hidden = true;
+  $("presenter-banner").hidden = true;
+  raisedHand = false;
+  $("raiseHand").setAttribute("aria-pressed", "false");
   previewState.textContent = "Camera off";
   previewPlaceholder.hidden = false;
   $("startPreview").textContent = "Enable camera preview";
@@ -455,6 +522,13 @@ $("createMeeting").addEventListener("click", () => {
   setRoom(createRoomCode());
   lobbyError.textContent = "Meeting link ready. Share it, then join when you’re ready.";
 });
+$("lobbyCopyLink").addEventListener("click", async () => {
+  if (!roomId) {
+    lobbyError.textContent = "Create a meeting first.";
+    return;
+  }
+  await copyRoomLink();
+});
 $("joinForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const room = parseRoomInput(roomCodeInput.value);
@@ -465,6 +539,14 @@ $("joinForm").addEventListener("submit", (event) => {
   joinRoom(room);
 });
 $("startPreview").addEventListener("click", togglePreview);
+$("previewMic").addEventListener("click", () => {
+  if (!previewStream) return;
+  const track = previewStream.getAudioTracks()[0];
+  if (track) {
+    track.enabled = !track.enabled;
+    $("previewMic").setAttribute("aria-pressed", String(!track.enabled));
+  }
+});
 $("copyRoomLink").addEventListener("click", copyRoomLink);
 displayNameInput.addEventListener("input", saveName);
 
@@ -522,6 +604,35 @@ $("closePanel").addEventListener("click", () => {
   activePanel = "";
 });
 $("hangupButton").addEventListener("click", leaveCall);
+$("mobileHangup").addEventListener("click", leaveCall);
+$("mobileChat").addEventListener("click", () => openPanel("chat"));
+$("mobileParticipants").addEventListener("click", () => openPanel("people"));
+$("mobileAudio").addEventListener("click", () => $("audioToggle").click());
+$("mobileVideo").addEventListener("click", () => $("videoToggle").click());
+$("mobileSwitchCamera").addEventListener("click", () => withCall(() => callSession.switchCamera()));
+$("mobileAudioOutput").addEventListener("click", () => {
+  if (!speakerSelect.value && speakerSelect.options.length > 1) speakerSelect.selectedIndex = 1;
+  speakerSelect.dispatchEvent(new Event("change"));
+});
+$("infoButton").addEventListener("click", () => openPanel("info"));
+$("panelCopyLink").addEventListener("click", copyRoomLink);
+$("captionsToggle").addEventListener("click", () => {
+  captionsEnabled = !captionsEnabled;
+  $("captionsToggle").setAttribute("aria-pressed", String(captionsEnabled));
+  $("call-connection-state").textContent = captionsEnabled ? "Captions enabled" : "Captions disabled";
+});
+$("raiseHand").addEventListener("click", () => {
+  raisedHand = !raisedHand;
+  $("raiseHand").setAttribute("aria-pressed", String(raisedHand));
+  if (callSession) callSession.toggleRaiseHand(raisedHand);
+});
+$("moreButton").addEventListener("click", () => {
+  $("more-menu").hidden = !$("more-menu").hidden;
+});
+$("deviceSettings").addEventListener("click", () => {
+  $("more-menu").hidden = true;
+  openPanel("info");
+});
 $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const input = $("chat-input");

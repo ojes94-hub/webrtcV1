@@ -156,6 +156,14 @@ func TestValidateSignalMessage(t *testing.T) {
 			message: SignalMessage{Type: "presence", Data: json.RawMessage(`{"muted":false,"videoOff":false,"speaking":true}`)},
 		},
 		{
+			name:    "raise hand",
+			message: SignalMessage{Type: "raise-hand", Data: json.RawMessage(`{"active":true}`)},
+		},
+		{
+			name:    "presenting",
+			message: SignalMessage{Type: "presenting", Data: json.RawMessage(`{"active":false}`)},
+		},
+		{
 			name:    "empty chat",
 			message: SignalMessage{Type: "chat", Data: json.RawMessage(`{"text":"  "}`)},
 			wantErr: true,

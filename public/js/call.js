@@ -28,6 +28,8 @@ export class CallSession {
     this.cameraTrack = this.localStream.getVideoTracks()[0] || null;
     this.displayTrack = null;
     this.facingMode = "user";
+    this.raisedHand = false;
+    this.presenting = false;
     this.audioEnabled = this.localStream.getAudioTracks().some((track) => track.enabled);
     this.videoEnabled = Boolean(this.cameraTrack?.enabled);
     this.isStarted = false;
@@ -65,6 +67,8 @@ export class CallSession {
     this.signaling.addEventListener("answer", (event) => this.runSafely(() => this.handleAnswer(event.detail)));
     this.signaling.addEventListener("candidate", (event) => this.runSafely(() => this.handleCandidate(event.detail)));
     this.signaling.addEventListener("presence", (event) => this.handlePresence(event.detail));
+    this.signaling.addEventListener("raise-hand", (event) => this.handleCallStatus(event.detail, "raisedHand"));
+    this.signaling.addEventListener("presenting", (event) => this.handleCallStatus(event.detail, "presenting"));
     this.signaling.addEventListener("chat", (event) => this.handleChat(event.detail));
     this.signaling.addEventListener("error", (event) => this.onStatus(event.detail.message || "Signaling error"));
   }
@@ -87,7 +91,9 @@ export class CallSession {
       local: true,
       muted: !this.audioEnabled,
       videoOff: !this.videoEnabled,
-      speaking: false
+      speaking: false,
+      raisedHand: false,
+      presenting: false
     });
     const others = message.data.peers || [];
     for (const peer of others) this.addParticipant(peer);
@@ -116,7 +122,9 @@ export class CallSession {
       local: false,
       muted: previous.muted ?? false,
       videoOff: previous.videoOff ?? false,
-      speaking: previous.speaking ?? false
+      speaking: previous.speaking ?? false,
+      raisedHand: previous.raisedHand ?? false,
+      presenting: previous.presenting ?? false
     });
   }
 
@@ -290,6 +298,13 @@ export class CallSession {
     this.publishParticipants();
   }
 
+  handleCallStatus(message, field) {
+    const participant = this.participants.get(message.source);
+    if (!participant) return;
+    participant[field] = Boolean(message.data?.active);
+    this.publishParticipants();
+  }
+
   handleChat(message) {
     const participant = this.participants.get(message.source);
     this.onChat({
@@ -331,12 +346,16 @@ export class CallSession {
     if (!local) return;
     local.muted = !this.audioEnabled;
     local.videoOff = !this.videoEnabled;
+    local.raisedHand = this.raisedHand;
+    local.presenting = this.presenting;
     this.signaling.send({
       type: "presence",
       data: {
         muted: local.muted,
         videoOff: local.videoOff,
-        speaking: local.speaking
+        speaking: local.speaking,
+        raisedHand: local.raisedHand,
+        presenting: local.presenting
       }
     });
     this.publishParticipants();
@@ -344,6 +363,12 @@ export class CallSession {
 
   publishParticipants() {
     this.onParticipants([...this.participants.values()]);
+  }
+
+  toggleRaiseHand(enabled) {
+    this.raisedHand = enabled;
+    this.signaling.send({ type: "raise-hand", data: { active: enabled } });
+    this.publishPresence();
   }
 
   async setAudioEnabled(enabled) {
@@ -422,6 +447,9 @@ export class CallSession {
     }
     this.localVideo.srcObject = this.localStream;
     track.addEventListener("ended", () => this.stopScreenShare());
+    this.presenting = true;
+    this.signaling.send({ type: "presenting", data: { active: true } });
+    this.publishPresence();
   }
 
   async stopScreenShare() {
@@ -437,6 +465,9 @@ export class CallSession {
       for (const sender of this.videoSenders.values()) await sender.replaceTrack(null);
     }
     this.localVideo.srcObject = this.localStream;
+    this.presenting = false;
+    this.signaling.send({ type: "presenting", data: { active: false } });
+    this.publishPresence();
   }
 
   async setAudioOutput(deviceId, elements) {

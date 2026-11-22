@@ -164,7 +164,8 @@ func (m *RoomManager) leave(peer *Peer) {
 
 func (m *RoomManager) route(peer *Peer, message SignalMessage) {
 	message.Source = peer.ID
-	if message.Type == "chat" || message.Type == "presence" {
+	if message.Type == "chat" || message.Type == "presence" ||
+		message.Type == "raise-hand" || message.Type == "presenting" {
 		m.broadcast(peer.RoomID, message, peer.ID)
 		return
 	}
@@ -302,12 +303,22 @@ func validateSignalMessage(message *SignalMessage) error {
 		}{Text: data.Text, SentAt: time.Now().UTC()})
 	case "presence":
 		var data struct {
-			Muted    bool `json:"muted"`
-			VideoOff bool `json:"videoOff"`
-			Speaking bool `json:"speaking"`
+			Muted      bool `json:"muted"`
+			VideoOff   bool `json:"videoOff"`
+			Speaking   bool `json:"speaking"`
+			RaisedHand bool `json:"raisedHand"`
+			Presenting bool `json:"presenting"`
 		}
 		if err := json.Unmarshal(message.Data, &data); err != nil {
 			return errors.New("invalid participant presence")
+		}
+		message.Data = marshalJSON(data)
+	case "raise-hand", "presenting":
+		var data struct {
+			Active bool `json:"active"`
+		}
+		if err := json.Unmarshal(message.Data, &data); err != nil {
+			return errors.New("invalid call status")
 		}
 		message.Data = marshalJSON(data)
 	default:

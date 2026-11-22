@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#10141c">
+  <meta name="theme-color" content="#202124">
   <title>Meet — private video rooms</title>
   <link rel="stylesheet" href="/css/app.css">
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Meet home"><span class="brand-mark">m</span>meet</a>
+    <a class="brand" href="/" aria-label="Meet home"><span class="brand-mark">M</span><span>Meet</span></a>
     <div id="room-toolbar" class="room-toolbar" hidden>
       <span id="room-label" class="room-label"></span>
       <button id="copyRoomLink" class="button button-quiet" type="button">Copy invite link</button>
@@ -21,28 +21,6 @@
   </header>
 
   <main id="lobby" class="lobby">
-    <section class="lobby-copy">
-      <p class="eyebrow">Good conversations start here</p>
-      <h1>Video calls,<br><span>without the fuss.</span></h1>
-      <p class="intro">Create a private room or join a meeting with a code. No account needed.</p>
-
-      <div class="meeting-actions">
-        <button id="createMeeting" class="button button-primary button-large" type="button">Create a new meeting</button>
-        <div class="divider"><span>or join with a code</span></div>
-        <form id="joinForm" class="join-form">
-          <label for="roomCode">Meeting code</label>
-          <div class="join-row">
-            <input id="roomCode" name="roomCode" autocomplete="off" placeholder="Paste a room code" maxlength="64">
-            <button class="button button-secondary" type="submit">Join room</button>
-          </div>
-        </form>
-        <label class="name-field" for="displayName">Your name
-          <input id="displayName" name="displayName" autocomplete="name" maxlength="40" placeholder="Enter your name">
-        </label>
-        <p id="lobby-error" class="error-message" role="alert"></p>
-      </div>
-    </section>
-
     <section class="preview-card" aria-label="Camera and microphone preview">
       <div class="preview-heading">
         <div><p class="eyebrow">Before you join</p><h2>Check your setup</h2></div>
@@ -52,9 +30,12 @@
         <video id="previewVideo" autoplay muted playsinline></video>
         <div id="preview-placeholder" class="preview-placeholder">
           <span class="avatar-placeholder">you</span>
-          <button id="startPreview" class="button button-secondary" type="button">Enable camera preview</button>
         </div>
         <div id="preview-name" class="preview-name">Your name</div>
+        <div class="preview-controls">
+          <button id="previewMic" class="round-control" type="button" aria-label="Mute microphone" aria-pressed="false">Mic</button>
+          <button id="startPreview" class="round-control" type="button" aria-label="Toggle camera" aria-pressed="false">Cam</button>
+        </div>
       </div>
       <div class="device-grid">
         <label>Camera<select id="cameraSelect"><option value="">Default camera</option></select></label>
@@ -63,15 +44,44 @@
       </div>
       <p class="privacy-note">Your camera and microphone are only shared after you join.</p>
     </section>
+
+    <section class="lobby-card">
+      <p class="eyebrow">Good conversations start here</p>
+      <h1>Video calls</h1>
+      <p class="intro">Create a private room or join with a code.</p>
+      <label class="name-field" for="displayName">Your name
+        <input id="displayName" name="displayName" autocomplete="name" maxlength="40" placeholder="Enter your name">
+      </label>
+      <button id="createMeeting" class="button button-primary button-large" type="button">Create a new meeting</button>
+      <div class="divider"><span>or</span></div>
+      <form id="joinForm" class="join-form">
+        <label for="roomCode">Join with a room code</label>
+        <div class="join-row">
+          <input id="roomCode" name="roomCode" autocomplete="off" placeholder="Paste a room code" maxlength="64">
+          <button class="button button-secondary" type="submit">Join</button>
+        </div>
+      </form>
+      <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button">Copy invite link</button>
+      <p id="lobby-error" class="error-message" role="alert"></p>
+    </section>
   </main>
 
   <main id="call-view" class="call-view" hidden>
-    <div class="call-main">
-      <section id="video-grid" class="video-grid" aria-label="Meeting participants">
+    <div id="presenter-banner" class="presenter-banner" hidden>
+      <span id="presenter-avatar" class="presenter-avatar">P</span>
+      <span id="presenter-name">Participant is presenting</span>
+    </div>
+
+    <div id="call-main" class="call-main">
+      <section id="main-stage" class="main-stage" aria-label="Active participant">
+        <div id="active-empty" class="active-empty">Waiting for someone to join…</div>
+      </section>
+      <section id="video-grid" class="video-grid" aria-label="Meeting participant filmstrip">
         <article id="local-tile" class="video-tile local-tile" data-peer-id="local">
           <video id="localVideo" autoplay muted playsinline></video>
           <div class="tile-shade"></div>
           <div class="tile-caption"><span id="localName">You</span><span id="localMicState" class="mic-state">Mic on</span></div>
+          <span id="local-hand" class="hand-badge" hidden>✋</span>
         </article>
         <div id="empty-call" class="empty-call">Waiting for someone to join…</div>
       </section>
@@ -83,6 +93,7 @@
         </div>
         <section id="participants-panel" class="panel-content">
           <p id="participant-count" class="panel-subtitle">1 person</p>
+          <button id="panelCopyLink" class="button button-secondary panel-copy" type="button">Copy meeting link</button>
           <ul id="participant-list" class="participant-list"></ul>
         </section>
         <section id="chat-panel" class="panel-content chat-panel" hidden>
@@ -96,22 +107,42 @@
       </aside>
     </div>
 
+    <div id="mobile-utilities" class="mobile-utilities" aria-label="Call utilities">
+      <button id="mobileAudioOutput" class="mobile-utility" type="button" aria-label="Audio output">♪</button>
+      <button id="mobileSwitchCamera" class="mobile-utility" type="button" aria-label="Switch camera">↻</button>
+    </div>
+
     <footer class="call-controls">
       <div class="call-status">
         <strong id="call-room-name">Meeting</strong>
         <span id="call-connection-state">Connecting…</span>
       </div>
       <div class="control-group">
-        <button id="audioToggle" class="control-button" type="button"><span class="control-icon">◖</span><span>Mute</span></button>
-        <button id="videoToggle" class="control-button" type="button"><span class="control-icon">▣</span><span>Camera</span></button>
-        <button id="screenShare" class="control-button" type="button"><span class="control-icon">⇧</span><span>Share</span></button>
-        <button id="switchCamera" class="control-button" type="button"><span class="control-icon">↻</span><span>Flip</span></button>
-        <button id="pipButton" class="control-button" type="button"><span class="control-icon">▢</span><span>Picture-in-picture</span></button>
-        <button id="participantsButton" class="control-button" type="button"><span class="control-icon">♙</span><span>People</span><b id="participant-badge" class="badge" hidden>1</b></button>
-        <button id="chatButton" class="control-button" type="button"><span class="control-icon">▤</span><span>Chat</span><b id="unread-badge" class="badge" hidden>0</b></button>
-        <button id="hangupButton" class="control-button control-hangup" type="button"><span class="control-icon">☎</span><span>Leave</span></button>
+        <button id="audioToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">Mic</span><span>Mute</span></button>
+        <button id="videoToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">Cam</span><span>Camera</span></button>
+        <button id="captionsToggle" class="control-button" type="button" aria-pressed="false"><span class="control-icon">CC</span><span>Captions</span></button>
+        <button id="raiseHand" class="control-button" type="button" aria-pressed="false"><span class="control-icon">✋</span><span>Raise</span></button>
+        <button id="screenShare" class="control-button" type="button" aria-pressed="false"><span class="control-icon">⇧</span><span>Present</span></button>
+        <button id="moreButton" class="control-button" type="button"><span class="control-icon">⋮</span><span>More</span></button>
+        <button id="hangupButton" class="control-button control-hangup" type="button"><span>Leave</span></button>
       </div>
+      <div class="drawer-controls">
+        <button id="infoButton" class="control-button drawer-button" type="button"><span class="control-icon">ⓘ</span><span>Info</span></button>
+        <button id="participantsButton" class="control-button drawer-button" type="button"><span class="control-icon">♙</span><span>People</span><b id="participant-badge" class="badge" hidden>1</b></button>
+        <button id="chatButton" class="control-button drawer-button" type="button"><span class="control-icon">▤</span><span>Chat</span><b id="unread-badge" class="badge" hidden>0</b></button>
+      </div>
+      <button id="mobileChat" class="mobile-action" type="button" aria-label="Chat">💬</button>
+      <button id="mobileParticipants" class="mobile-action" type="button" aria-label="Participants">👥</button>
+      <button id="mobileHangup" class="mobile-action mobile-hangup" type="button" aria-label="Leave call">☎</button>
+      <button id="mobileAudio" class="mobile-action" type="button" aria-label="Mute microphone">🎤</button>
+      <button id="mobileVideo" class="mobile-action" type="button" aria-label="Turn camera off">📹</button>
     </footer>
+
+    <div id="more-menu" class="more-menu" hidden>
+      <button id="switchCamera" type="button">Flip camera</button>
+      <button id="pipButton" type="button">Picture-in-picture</button>
+      <button id="deviceSettings" type="button">Device settings</button>
+    </div>
   </main>
 </body>
 </html>
