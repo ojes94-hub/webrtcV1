@@ -219,6 +219,7 @@ async function joinRoom(room) {
   previewVideo.srcObject = null;
   lobby.hidden = true;
   callView.hidden = false;
+  document.body.classList.add("in-call");
   $("connection-indicator").hidden = false;
   $("localName").textContent = name;
   $("localMicState").textContent = "Mic off";
@@ -244,6 +245,7 @@ async function joinRoom(room) {
   } catch (error) {
     lobby.hidden = false;
     callView.hidden = true;
+    document.body.classList.remove("in-call");
     $("connection-indicator").hidden = true;
     await callSession.leave();
     callSession = null;
@@ -304,8 +306,8 @@ function updateMobileGridLayout() {
       remotes[0];
     stage.append(selected[1]);
     $("active-empty").hidden = true;
-    remotes.filter(([, tile]) => tile !== selected[1]).forEach(([, tile], index) => {
-      tile.classList.toggle("mobile-overflow-hidden", index >= 4);
+    remotes.filter(([, tile]) => tile !== selected[1]).forEach(([, tile]) => {
+      tile.classList.remove("mobile-overflow-hidden");
     });
   } else if (!mobile && count === 1) {
     stage.append(remotes[0][1]);
@@ -605,6 +607,7 @@ async function leaveCall() {
   closePanel();
   callView.hidden = true;
   lobby.hidden = false;
+  document.body.classList.remove("in-call");
   $("connection-indicator").hidden = true;
   $("screenShare").classList.remove("active");
   $("local-tile").classList.remove("sharing", "pinned", "video-off", "speaking");
