@@ -70,10 +70,13 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 .button-secondary { border-color: var(--border); background: var(--surface-raised); }
 .button-quiet { border-color: var(--border); background: transparent; }
 .button-large { width: 100%; }
+.create-actions { display: grid; gap: 8px; }
 .divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--muted); font-size: 12px; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .join-row { display: flex; gap: 8px; }
 .join-row input { flex: 1; min-width: 0; }
+.join-actions { display: flex; gap: 8px; }
+.join-actions .button { flex: 1; min-width: 0; padding: 0 8px; }
 .copy-link { width: 100%; margin-top: 10px; }
 .error-message { min-height: 18px; margin: 12px 0 0; color: #ffaaa1; font-size: 13px; }
 
@@ -180,7 +183,8 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
   .name-field input, .join-row input { height: 42px; }
   .lobby-card .divider { margin: 12px 0; }
   .join-row { gap: 7px; }
-  .join-row .button { padding: 0 14px; }
+  .join-actions { flex-direction: column; }
+  .join-actions .button { min-height: 40px; }
   .copy-link { min-height: 40px; margin-top: 8px; }
   .error-message:empty { display: none; }
   .preview-card { order: 3; width: 100%; padding: 12px; }

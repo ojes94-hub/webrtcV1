@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -14,6 +15,90 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+func TestHandleConferenceTokenReturnsSignedJoinToken(t *testing.T) {
+	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
+	req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(`{"room":"team-room","username":"Alice"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	handleConferenceToken(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if res.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", res.Header().Get("Cache-Control"))
+	}
+	var response struct {
+		Token string `json:"token"`
+		URL   string `json:"url"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.URL != "wss://livekit.example.test" {
+		t.Fatalf("url = %q", response.URL)
+	}
+	parts := strings.Split(response.Token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token segments = %d, want 3", len(parts))
+	}
+	mac := hmac.New(sha256.New, []byte("test-api-secret"))
+	_, _ = mac.Write([]byte(parts[0] + "." + parts[1]))
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || !hmac.Equal(signature, mac.Sum(nil)) {
+		t.Fatal("token signature is invalid")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims conferenceTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims.Issuer != "test-api-key" || claims.Subject == "" || claims.Name != "Alice" ||
+		!claims.Video.RoomJoin || claims.Video.Room != "team-room" ||
+		!claims.Video.CanPublish || !claims.Video.CanSubscribe || !claims.Video.CanPublishData {
+		t.Fatalf("unexpected token claims: %+v", claims)
+	}
+}
+
+func TestHandleConferenceTokenRejectsInvalidRequestsAndMissingConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		configured  bool
+		wantStatus  int
+	}{
+		{name: "invalid room", body: `{"room":"bad room","username":"Alice"}`, contentType: "application/json", configured: true, wantStatus: http.StatusBadRequest},
+		{name: "invalid JSON", body: `{`, contentType: "application/json", configured: true, wantStatus: http.StatusBadRequest},
+		{name: "missing config", body: `{"room":"team-room","username":"Alice"}`, contentType: "application/json", wantStatus: http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("LIVEKIT_URL", "")
+			t.Setenv("LIVEKIT_API_KEY", "")
+			t.Setenv("LIVEKIT_API_SECRET", "")
+			if test.configured {
+				t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+				t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+				t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(test.body))
+			req.Header.Set("Content-Type", test.contentType)
+			res := httptest.NewRecorder()
+			handleConferenceToken(res, req)
+			if res.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", res.Code, test.wantStatus)
+			}
+		})
+	}
+}
 
 func TestServeIndex(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

@@ -25,7 +25,12 @@ func main() {
 	}
 
 	addr := flag.String("addr", defaultAddr, "listen address (host:port)")
+	certFile := flag.String("cert", "", "TLS certificate file (optional)")
+	keyFile := flag.String("key", "", "TLS private key file (optional)")
 	flag.Parse()
+	if (*certFile == "") != (*keyFile == "") {
+		log.Fatal("both -cert and -key must be provided to enable TLS")
+	}
 
 	handler, err := newHandler()
 	if err != nil {
@@ -42,6 +47,10 @@ func main() {
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
+		if *certFile != "" {
+			serverErrors <- server.ListenAndServeTLS(*certFile, *keyFile)
+			return
+		}
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -78,6 +87,7 @@ func newHandler() (http.Handler, error) {
 	mux.HandleFunc("/healthz", serveHealth)
 	mux.HandleFunc("/ws", handleSignaling)
 	mux.HandleFunc("/api/ice-servers", handleICEServers)
+	mux.HandleFunc("/api/conference-token", handleConferenceToken)
 	mux.Handle("/css/", fileServer)
 	mux.Handle("/js/", fileServer)
 	mux.Handle("/images/", fileServer)

@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#202124">
   <title>Meet — private video rooms</title>
   <link rel="stylesheet" href="/css/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.js"></script>
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
@@ -64,13 +65,19 @@
       <label class="name-field" for="displayName">Your name
         <input id="displayName" name="displayName" autocomplete="name" maxlength="40" placeholder="Enter your name">
       </label>
-      <button id="createMeeting" class="button button-primary button-large" type="button">Create a new meeting</button>
+      <div class="create-actions">
+        <button id="createMeeting" class="button button-primary button-large" type="button">New 1-on-1 call</button>
+        <button id="createConference" class="button button-secondary button-large" type="button">New conference</button>
+      </div>
       <div class="divider"><span>or</span></div>
       <form id="joinForm" class="join-form">
         <label for="roomCode">Join with a room code</label>
         <div class="join-row">
           <input id="roomCode" name="roomCode" autocomplete="off" placeholder="Paste a room code" maxlength="64">
-          <button class="button button-secondary" type="submit">Join</button>
+          <div class="join-actions">
+            <button id="joinP2P" class="button button-secondary" type="submit">Join 1-on-1</button>
+            <button id="joinConference" class="button button-secondary" type="button">Join conference</button>
+          </div>
         </div>
       </form>
       <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button" hidden>Copy invite link</button>

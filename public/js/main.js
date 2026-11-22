@@ -1,4 +1,5 @@
 import { CallSession } from "./call.js";
+import { ConferenceSession } from "./conference.js";
 
 const $ = (id) => document.getElementById(id);
 const lobby = $("lobby");
@@ -22,6 +23,7 @@ const connectionStates = new Map();
 let roomId = "";
 let previewStream = null;
 let callSession = null;
+let callMode = "p2p";
 let unreadMessages = 0;
 let activePanel = "";
 let audioEnabled = true;
@@ -50,14 +52,23 @@ function roomFromLocation() {
   return isValidRoomCode(value) ? value : "";
 }
 
-function setRoom(room) {
+function setRoom(room, mode = callMode) {
   roomId = room;
+  callMode = mode;
+  updateJoinModeButtons();
   roomCodeInput.value = room;
   $("room-label").textContent = `Room ${room}`;
   $("call-room-name").textContent = `Room ${room}`;
   $("room-toolbar").hidden = !room;
   $("lobbyCopyLink").hidden = !room;
-  window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}` : "/");
+  const suffix = room && mode === "conference" ? "?mode=conference" : "";
+  window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}${suffix}` : "/");
+}
+
+function updateJoinModeButtons() {
+  const isConference = callMode === "conference";
+  $("joinP2P").textContent = isConference ? "Join conference" : "Join 1-on-1";
+  $("joinConference").textContent = isConference ? "Join 1-on-1 instead" : "Join conference";
 }
 
 function parseRoomInput(value) {
@@ -176,7 +187,7 @@ async function togglePreview() {
   }
 }
 
-async function joinRoom(room) {
+async function joinRoom(room, mode = callMode) {
   const name = saveName();
   if (!name) {
     lobbyError.textContent = "Enter your name before joining.";
@@ -189,7 +200,7 @@ async function joinRoom(room) {
   }
 
   lobbyError.textContent = "";
-  setRoom(room);
+  setRoom(room, mode);
   $("chat-messages").replaceChildren();
   $("unread-badge").hidden = true;
   unreadMessages = 0;
@@ -226,7 +237,8 @@ async function joinRoom(room) {
   audioEnabled = Boolean(stream?.getAudioTracks().some((track) => track.enabled));
   videoEnabled = Boolean(stream?.getVideoTracks().some((track) => track.enabled));
   updateControlState();
-  callSession = new CallSession({
+  const Session = mode === "conference" ? ConferenceSession : CallSession;
+  callSession = new Session({
     roomId: room,
     displayName: name,
     localStream: stream,
@@ -624,7 +636,8 @@ async function leaveCall() {
 async function copyRoomLink() {
   if (!roomId) return;
   try {
-    await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}`);
+    const suffix = callMode === "conference" ? "?mode=conference" : "";
+    await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}${suffix}`);
     $("copyRoomLink").textContent = "Copied!";
     $("lobbyCopyLink").textContent = "Invite link copied";
     $("panelCopyLink").textContent = "Invite link copied";
@@ -639,8 +652,12 @@ async function copyRoomLink() {
 }
 
 $("createMeeting").addEventListener("click", () => {
-  setRoom(createRoomCode());
+  setRoom(createRoomCode(), "p2p");
   lobbyError.textContent = "Meeting link ready. Share it, then join when you’re ready.";
+});
+$("createConference").addEventListener("click", () => {
+  setRoom(createRoomCode(), "conference");
+  lobbyError.textContent = "Conference link ready. Share it, then join when you’re ready.";
 });
 $("lobbyCopyLink").addEventListener("click", async () => {
   if (!roomId) {
@@ -656,7 +673,15 @@ $("joinForm").addEventListener("submit", (event) => {
     lobbyError.textContent = "Enter a valid room code or meeting link.";
     return;
   }
-  joinRoom(room);
+  joinRoom(room, callMode);
+});
+$("joinConference").addEventListener("click", () => {
+  const room = parseRoomInput(roomCodeInput.value);
+  if (!isValidRoomCode(room)) {
+    lobbyError.textContent = "Enter a valid room code or meeting link.";
+    return;
+  }
+  joinRoom(room, callMode === "conference" ? "p2p" : "conference");
 });
 $("startPreview").addEventListener("click", togglePreview);
 $("previewMic").addEventListener("click", () => {
@@ -744,7 +769,7 @@ $("captionsToggle").addEventListener("click", () => {
 $("raiseHand").addEventListener("click", () => {
   raisedHand = !raisedHand;
   $("raiseHand").setAttribute("aria-pressed", String(raisedHand));
-  if (callSession) callSession.toggleRaiseHand(raisedHand);
+  withCall(() => callSession.toggleRaiseHand(raisedHand));
 });
 $("moreButton").addEventListener("click", () => {
   $("more-menu").hidden = !$("more-menu").hidden;
@@ -758,10 +783,13 @@ $("chat-form").addEventListener("submit", (event) => {
   const input = $("chat-input");
   const text = input.value.trim();
   if (!text || !callSession) return;
-  if (!callSession.handleLocalChat(text)) {
-    $("call-connection-state").textContent = "Chat not sent — reconnecting";
-  }
-  input.value = "";
+  withCall(async () => {
+    if (!await callSession.handleLocalChat(text)) {
+      $("call-connection-state").textContent = "Chat not sent — reconnecting";
+      return;
+    }
+    input.value = "";
+  });
 });
 
 displayNameInput.value = (() => {
@@ -775,6 +803,8 @@ displayNameInput.dispatchEvent(new Event("input"));
 if (window.matchMedia("(max-width: 767px)").matches) deviceSettings.open = false;
 roomId = roomFromLocation();
 if (roomId) {
+  callMode = new URLSearchParams(window.location.search).get("mode") === "conference" ? "conference" : "p2p";
+  updateJoinModeButtons();
   roomCodeInput.value = roomId;
   $("room-label").textContent = `Room ${roomId}`;
   $("room-toolbar").hidden = false;

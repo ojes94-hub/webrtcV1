@@ -23,7 +23,7 @@ const (
 	maxChatRunes        = 2000
 	writeWait           = 10 * time.Second
 	pongWait            = 60 * time.Second
-	pingPeriod          = 45 * time.Second
+	pingPeriod          = 54 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
