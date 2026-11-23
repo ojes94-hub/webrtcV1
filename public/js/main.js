@@ -709,10 +709,7 @@ async function createProtectedRoom(mode) {
     });
     if (!response.ok) {
       if (response.status === 503) {
-        setRoom(createRoomCode(), mode);
-        roomAccessCode = "";
-        setRoom(roomId, mode);
-        lobbyError.textContent = "Protected rooms are not enabled on this server. A normal meeting link was created instead.";
+        lobbyError.textContent = "Protected rooms are not enabled on this server. Set ROOM_ACCESS_SECRET on the server, then try again.";
         return;
       }
       lobbyError.textContent = `Could not create protected room (${response.status}).`;
