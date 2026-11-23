@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -633,8 +636,16 @@ func TestProtectedRoomTamperAndSecretRestartBehavior(t *testing.T) {
 }
 
 func TestRoomCreateAndProtectedWebSocketAccess(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
+		t.Skip("DATABASE_URL is needed for the Neon-backed protected-room integration test")
+	}
 	t.Setenv("ROOM_ACCESS_SECRET", "test-room-secret")
 	t.Setenv("ROOM_CREATE_RATE_LIMIT", "100")
+	t.Setenv("ROOM_ACCESS_ATTEMPT_LIMIT", "100")
+	t.Setenv("CONFERENCE_TOKEN_RATE_LIMIT", "100")
+	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"unknownField":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
@@ -645,12 +656,101 @@ func TestRoomCreateAndProtectedWebSocketAccess(t *testing.T) {
 	var created struct {
 		Room       string `json:"room"`
 		AccessCode string `json:"accessCode"`
+		MeetingID  string `json:"meetingId"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if _, protected := protectedRoomNonce(created.Room); !protected {
-		t.Fatal("created room is not protected")
+	if !validProtectedRoomV2ID(created.Room) || !validNumericCode(created.MeetingID, meetingIDDigits) ||
+		!validNumericCode(created.AccessCode, meetingPasswordDigits) {
+		t.Fatalf("created credentials have invalid format: room=%q meetingID=%q", created.Room, created.MeetingID)
+	}
+	unregisteredRoom, err := randomStoredProtectedRoomID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verifyProtectedRoomAccess(unregisteredRoom, "") {
+		t.Fatal("an unregistered ID was accidentally classified as protected")
+	}
+	databaseURL := os.Getenv("DATABASE_URL")
+	t.Setenv("DATABASE_URL", "")
+	if allowed, err := protectedRoomAccess(created.Room, created.AccessCode); allowed || err == nil {
+		t.Fatalf("database outage did not fail closed: allowed=%v err=%v", allowed, err)
+	}
+	t.Setenv("DATABASE_URL", databaseURL)
+
+	resolve := func(meetingID, password string) *httptest.ResponseRecorder {
+		body, err := json.Marshal(map[string]string{
+			"meetingId": meetingID,
+			"password":  password,
+			"ignored":   "accepted",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/rooms/resolve", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handleRoomResolve(response, request)
+		return response
+	}
+
+	wrongPassword := "999999"
+	if wrongPassword == created.AccessCode {
+		wrongPassword = "000000"
+	}
+	wrong := resolve(created.MeetingID, wrongPassword)
+	if wrong.Code != http.StatusForbidden || wrong.Body.String() != "access denied\n" {
+		t.Fatalf("wrong meeting password = %d %q", wrong.Code, wrong.Body.String())
+	}
+	unknownID := "0000000000"
+	if unknownID == created.MeetingID {
+		unknownID = "0000000001"
+	}
+	unknown := resolve(unknownID, created.AccessCode)
+	if unknown.Code != http.StatusForbidden || unknown.Body.String() != wrong.Body.String() {
+		t.Fatalf("unknown meeting ID response = %d %q, want generic 403", unknown.Code, unknown.Body.String())
+	}
+	resolved := resolve(created.MeetingID, created.AccessCode)
+	if resolved.Code != http.StatusOK {
+		t.Fatalf("resolve status = %d: %s", resolved.Code, resolved.Body.String())
+	}
+	var resolvedRoom struct {
+		Room       string `json:"room"`
+		AccessCode string `json:"accessCode"`
+	}
+	if err := json.Unmarshal(resolved.Body.Bytes(), &resolvedRoom); err != nil {
+		t.Fatal(err)
+	}
+	if resolvedRoom.Room != created.Room || resolvedRoom.AccessCode != created.AccessCode {
+		t.Fatalf("resolved credentials do not match created room: %#v", resolvedRoom)
+	}
+
+	tokenBody, err := json.Marshal(map[string]string{
+		"room":       created.Room,
+		"username":   "Alice",
+		"accessCode": created.AccessCode,
+		"extra":      "accepted",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenRequest := httptest.NewRequest(http.MethodPost, "/api/conference-token", bytes.NewReader(tokenBody))
+	tokenRequest.Header.Set("Content-Type", "application/json")
+	tokenResponse := httptest.NewRecorder()
+	handleConferenceToken(tokenResponse, tokenRequest)
+	if tokenResponse.Code != http.StatusOK {
+		t.Fatalf("correct meeting password token status = %d: %s", tokenResponse.Code, tokenResponse.Body.String())
+	}
+	var issuedToken struct {
+		Token string `json:"token"`
+		URL   string `json:"url"`
+	}
+	if err := json.Unmarshal(tokenResponse.Body.Bytes(), &issuedToken); err != nil {
+		t.Fatal(err)
+	}
+	if issuedToken.Token == "" || issuedToken.URL != "wss://livekit.example.test" {
+		t.Fatal("protected conference token response is incomplete")
 	}
 
 	handler, err := newHandler()
@@ -661,11 +761,28 @@ func TestRoomCreateAndProtectedWebSocketAccess(t *testing.T) {
 	defer server.Close()
 
 	wsBase := "ws" + strings.TrimPrefix(server.URL, "http")
+	var firstWebSocketError string
 	for _, suffix := range []string{"", "&accessCode=wrong"} {
-		conn, _, err := websocket.DefaultDialer.Dial(wsBase+"/ws?room="+created.Room+"&name=Alice"+suffix, nil)
+		conn, response, err := websocket.DefaultDialer.Dial(wsBase+"/ws?room="+created.Room+"&name=Alice"+suffix, nil)
 		if err == nil {
 			_ = conn.Close()
 			t.Fatal("protected WebSocket join unexpectedly succeeded")
+		}
+		if response == nil {
+			t.Fatalf("protected WebSocket rejection has no HTTP response: %v", err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if response.StatusCode != http.StatusForbidden || string(body) != "access denied\n" {
+			t.Fatalf("protected WebSocket rejection = %d %q", response.StatusCode, body)
+		}
+		if firstWebSocketError == "" {
+			firstWebSocketError = string(body)
+		} else if string(body) != firstWebSocketError {
+			t.Fatalf("WebSocket missing/wrong password bodies differ: %q vs %q", firstWebSocketError, body)
 		}
 	}
 
@@ -674,7 +791,63 @@ func TestRoomCreateAndProtectedWebSocketAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("correct protected WebSocket join failed: %v", err)
 	}
-	defer conn.Close()
+	_ = conn.Close()
+
+	protectedRoomDBState.Lock()
+	if protectedRoomDBState.db != nil {
+		_ = protectedRoomDBState.db.Close()
+	}
+	protectedRoomDBState.db = nil
+	protectedRoomDBState.dsn = ""
+	protectedRoomDBState.Unlock()
+
+	allowed, err := protectedRoomAccess(created.Room, created.AccessCode)
+	if err != nil || !allowed {
+		t.Fatalf("reopened database rejected created room: allowed=%v err=%v", allowed, err)
+	}
+	t.Setenv("ROOM_ACCESS_SECRET", "different-secret")
+	allowed, err = protectedRoomAccess(created.Room, created.AccessCode)
+	if err != nil || allowed {
+		t.Fatalf("different secret accepted created room: allowed=%v err=%v", allowed, err)
+	}
+	t.Setenv("ROOM_ACCESS_SECRET", "")
+	allowed, err = protectedRoomAccess(created.Room, created.AccessCode)
+	if err != nil || allowed {
+		t.Fatalf("feature-off server opened stored protected room: allowed=%v err=%v", allowed, err)
+	}
+}
+
+func TestNumericMeetingCredentialFormatsAndTampering(t *testing.T) {
+	t.Setenv("ROOM_ACCESS_SECRET", "test-room-secret")
+	roomID, err := randomStoredProtectedRoomID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validRoomID(roomID) || !validProtectedRoomV2ID(roomID) {
+		t.Fatalf("generated protected room ID is invalid: %q", roomID)
+	}
+	if !verifyProtectedRoomAccess("pr2_custom-room", "") {
+		t.Fatal("an unregistered custom room using the protected prefix was classified as protected")
+	}
+	meetingID, err := randomNumericCode(meetingIDDigits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, err := randomNumericCode(meetingPasswordDigits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validNumericCode(meetingID, 10) || !validNumericCode(password, 6) {
+		t.Fatalf("generated numeric credentials are malformed: ID=%q password=%q", meetingID, password)
+	}
+
+	tampered := roomID[:len(roomID)-1] + "a"
+	if tampered == roomID {
+		tampered = roomID[:len(roomID)-1] + "b"
+	}
+	if validProtectedRoomV2ID(tampered) {
+		t.Fatal("tampered protected room ID passed its HMAC check")
+	}
 }
 
 func TestRoomCreateDisabledAndUnknownFields(t *testing.T) {
@@ -690,6 +863,7 @@ func TestRoomCreateDisabledAndUnknownFields(t *testing.T) {
 
 func TestRateLimiterBurstAndEviction(t *testing.T) {
 	limiter := newRateLimiter(3, time.Minute)
+	limiter.maxEntries = 4
 	now := time.Now()
 	for index := 0; index < 3; index++ {
 		allowed, _ := limiter.allow("198.51.100.10", now)
@@ -704,12 +878,12 @@ func TestRateLimiterBurstAndEviction(t *testing.T) {
 	if got := limiter.len(); got != 1 {
 		t.Fatalf("limiter entries = %d, want 1", got)
 	}
-	for index := 0; index < 100; index++ {
+	for index := 0; index < 10; index++ {
 		limiter.allow("old-entry-"+strconv.Itoa(index), now)
 	}
 	limiter.allow("recent-entry", now.Add(3*time.Minute))
-	if got := limiter.len(); got > 101 {
-		t.Fatalf("limiter map grew unbounded: %d entries", got)
+	if got := limiter.len(); got > limiter.maxEntries {
+		t.Fatalf("limiter map exceeded its configured bound: %d entries", got)
 	}
 }
 

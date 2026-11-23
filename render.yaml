@@ -10,6 +10,11 @@ services:
       # Optional room access control. No default or secret is configured.
       # - key: ROOM_ACCESS_SECRET
       #   sync: false
+      # - key: DATABASE_URL
+      #   sync: false
+      # DATABASE_URL_UNPOOLED is only needed when running migrations.
+      # - key: DATABASE_URL_UNPOOLED
+      #   sync: false
       # Optional abuse-protection tuning.
       # - key: CONFERENCE_TOKEN_RATE_LIMIT
       #   value: 60
@@ -19,3 +24,7 @@ services:
       #   value: 10
       # - key: ROOM_CREATE_RATE_WINDOW_SECONDS
       #   value: 60
+      # - key: ROOM_ACCESS_ATTEMPT_LIMIT
+      #   value: 10
+      # - key: ROOM_ACCESS_ATTEMPT_WINDOW_SECONDS
+      #   value: 900

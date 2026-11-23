@@ -77,7 +77,15 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid userId", http.StatusBadRequest)
 		return
 	}
-	if !verifyProtectedRoomAccess(input.Room, input.AccessCode) {
+	if roomAccessRateLimited(w, r, input.Room) {
+		return
+	}
+	allowed, err := protectedRoomAccess(input.Room, input.AccessCode)
+	if err != nil {
+		http.Error(w, "protected room service is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
 		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}

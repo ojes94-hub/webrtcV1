@@ -35,21 +35,38 @@ go build -tags netgo -ldflags "-s -w" -o app .
 | `LIVEKIT_URL` | For conferences | LiveKit server URL, for example `wss://your-project.livekit.cloud`. |
 | `LIVEKIT_API_KEY` | For conferences | LiveKit project API key. |
 | `LIVEKIT_API_SECRET` | For conferences | LiveKit API secret; used only by the server to sign short-lived participant tokens. |
-| `ROOM_ACCESS_SECRET` | No | Enables opt-in protected rooms. Keep this secret stable across deploys/restarts. Unset means every room behaves normally. |
+| `DATABASE_URL` | Protected rooms | Neon PostgreSQL pooled connection string used by the app. |
+| `DATABASE_URL_UNPOOLED` | Schema migration | Neon direct connection string, used only when running migrations. |
+| `ROOM_ACCESS_SECRET` | No | Enables opt-in protected rooms. Keep this secret stable across deploys/restarts. |
 | `CONFERENCE_TOKEN_RATE_LIMIT` | No | Conference-token requests allowed per IP per window; defaults to `60`. |
 | `CONFERENCE_TOKEN_RATE_WINDOW_SECONDS` | No | Conference-token rate-limit window in seconds; defaults to `60`. |
 | `ROOM_CREATE_RATE_LIMIT` | No | Protected-room creation requests allowed per IP per window; defaults to `10`. |
 | `ROOM_CREATE_RATE_WINDOW_SECONDS` | No | Protected-room creation rate-limit window in seconds; defaults to `60`. |
+| `ROOM_ACCESS_ATTEMPT_LIMIT` | No | Protected-room access attempts allowed per IP; defaults to `10`. |
+| `ROOM_ACCESS_ATTEMPT_WINDOW_SECONDS` | No | Access-attempt window in seconds; defaults to `900`. |
 
 `GET /api/ice-servers` returns the public STUN server and any configured TURN server credentials with `Cache-Control: no-store`. It accepts either `TURN_URLS` or the single-URL `TURN_URL` alias. Credentials are necessarily visible to clients using them; use the shared-secret mode for expiring credentials rather than embedding a permanent TURN password in the app.
 
 `POST /api/conference-token` accepts `{ "room": "...", "username": "...", "userId": "..." }` and returns a short-lived signed token and LiveKit URL. `userId` is optional; when omitted, the server creates an identity. API endpoints allow cross-origin requests for native clients. The API secret is never sent to clients. Configure all three `LIVEKIT_*` variables to enable conference rooms. Invite links retain the selected call mode.
 
-### Optional protected rooms
+### Optional protected rooms and numeric meeting credentials
 
-Protected rooms are disabled unless `ROOM_ACCESS_SECRET` is set. Leaving the variable unset preserves the existing open-room behavior. Protected IDs and access codes are derived statelessly with HMAC-SHA256, so deployments remain secure across Render restarts and sleeps. Never log or share `ROOM_ACCESS_SECRET`.
+Protected-room creation and numeric ID/password entry require both `ROOM_ACCESS_SECRET` and a configured Neon `DATABASE_URL`. Keep the access secret stable across deployments; it is used to verify protected room IDs and derive password verifiers. Existing normal rooms and previously issued stateless invite links continue to work. Newly created protected rooms are stored in Neon so their 10-digit meeting IDs remain unique and survive restarts. Password verifiers, not the plaintext passwords, are stored in the database.
 
-Create a protected room:
+If `ROOM_ACCESS_SECRET` is removed or changed, new database-backed protected rooms fail closed and cannot be joined; they do not become open rooms. Existing normal rooms remain unaffected.
+
+Run the versioned schema migration using the direct (unpooled) Neon URL:
+
+```powershell
+$env:DATABASE_URL_UNPOOLED = "<Neon direct connection string>"
+go run ./cmd/migrate
+```
+
+Keep both database URLs and `ROOM_ACCESS_SECRET` out of source control. The repository ignores `.env` and `.env.local`.
+
+Create a protected room from the web lobby by checking **Protect this room with an access code**, then choosing **New 1-on-1 call** or **New conference**. The lobby displays a 10-digit meeting ID and 6-digit password. Share either those credentials or the invite link.
+
+Create a protected room through the API:
 
 ```http
 POST /api/rooms
@@ -61,10 +78,21 @@ Content-Type: application/json
 Response:
 
 ```json
-{"room":"pr1_<nonce>_<room-proof>","accessCode":"<access-code>"}
+{"room":"pr2_<nonce>_<room-proof>","accessCode":"234567","meetingId":"7069567577"}
 ```
 
-The protected room ID is still a valid `/room/{id}` URL. Put the access code in the invite URL query string, for example `/room/pr1_<nonce>_<room-proof>?accessCode=<access-code>`. Existing web and Android clients can open it as a normal room URL; clients that cannot send the code receive `403`.
+The protected room ID is still a valid `/room/{id}` URL. The web app places the password in the URL fragment (`/room/{id}#accessCode=234567`) so it is not sent as part of the page request; it also accepts the earlier `?accessCode=...` link format. Clients that cannot pass the password will be denied joining.
+
+Numeric credential lookup:
+
+```http
+POST /api/rooms/resolve
+Content-Type: application/json
+
+{"meetingId":"7069567577","password":"234567"}
+```
+
+On success, the response is `{"room":"pr2_...","accessCode":"234567"}`. A missing/incorrect ID or password returns the same plain-text `403 access denied`. The web lobby has separate **Meeting ID** and **Password** fields and supports both 1-on-1 and conference joins. Existing custom room-code inputs remain a separate flow.
 
 The conference-token endpoint accepts the optional JSON or query field `accessCode`:
 
@@ -89,9 +117,12 @@ Statuses:
 
 | Endpoint | Status | Meaning |
 | --- | --- | --- |
-| `POST /api/rooms` | `200` | Protected room and access code created; response shape is `{"room":"...","accessCode":"..."}`. |
+| `POST /api/rooms` | `200` | Protected room created; response shape is `{"room":"...","accessCode":"...","meetingId":"..."}`. |
 | `POST /api/rooms` | `400` | Invalid JSON or request. |
-| `POST /api/rooms` | `503` | `ROOM_ACCESS_SECRET` is unset. |
+| `POST /api/rooms` | `503` | `ROOM_ACCESS_SECRET`, database configuration, or the database is unavailable. |
+| `POST /api/rooms/resolve` | `200` | Meeting ID/password verified and mapped to the protected room. |
+| `POST /api/rooms/resolve` | `403` | Meeting ID/password pair is invalid. |
+| `POST /api/rooms/resolve` | `429` | Access-attempt limit reached; `Retry-After` is included. |
 | `/api/conference-token` | `403` | Protected room code is missing or wrong; body is plain text `access denied`. |
 | `/api/conference-token` | `429` | Per-IP abuse limit reached; `Retry-After` is included. |
 | `/ws` | `403` | Protected room code is missing or wrong. |
@@ -103,7 +134,7 @@ The server compares submitted codes in constant time. Unknown JSON fields remain
 
 1. Push the repository to GitHub and create a Render Web Service using the Docker runtime (or let Render apply [render.yaml](./render.yaml)).
 2. Set `TURN_URLS` and `TURN_SHARED_SECRET` for reliable peer-to-peer media on restrictive mobile/NAT networks. For conference rooms, also set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in the Render dashboard.
-3. Room protection and abuse limiting are optional. To enable room protection, set `ROOM_ACCESS_SECRET` to a high-entropy Render secret and keep it stable across restarts. The default limits are generous (`60` conference-token requests and `10` room creations per IP per minute). Commented optional examples are available in [render.yaml](./render.yaml).
+3. Room protection is optional. Configure `DATABASE_URL` with the Neon pooled URL and set `ROOM_ACCESS_SECRET` to a high-entropy secret in Render. Keep the secret stable. Run `go run ./cmd/migrate` with `DATABASE_URL_UNPOOLED` before deploying the feature. The default limits are `60` conference-token requests and `10` room creations per IP per minute, plus `10` protected-room access attempts per IP per 15 minutes. Commented examples are available in [render.yaml](./render.yaml).
 3. Deploy. Render terminates HTTPS; the app serves plain HTTP internally and uses `wss:` from HTTPS pages.
 
 The service exposes `/healthz` for Render health checks. Room membership is held in process memory, so use one Render instance unless a shared signaling store is added. HTTPS signaling does not relay WebRTC media: without TURN, some networks will not establish a direct peer route.

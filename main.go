@@ -90,6 +90,7 @@ func newHandler() (http.Handler, error) {
 	mux.HandleFunc("/api/ice-servers", handleICEServers)
 	mux.HandleFunc("/api/conference-token", handleConferenceToken)
 	mux.HandleFunc("/api/rooms", handleRoomCreate)
+	mux.HandleFunc("/api/rooms/resolve", handleRoomResolve)
 	mux.Handle("/css/", fileServer)
 	mux.Handle("/js/", fileServer)
 	mux.Handle("/images/", fileServer)

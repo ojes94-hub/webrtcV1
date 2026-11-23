@@ -79,9 +79,9 @@ function setRoom(room, mode = callMode) {
   $("lobbyCopyLink").hidden = !room;
   const params = new URLSearchParams();
   if (mode === "conference") params.set("mode", "conference");
-  if (roomAccessCode) params.set("accessCode", roomAccessCode);
   const suffix = params.size ? `?${params.toString()}` : "";
-  window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}${suffix}` : "/");
+  const fragment = roomAccessCode ? `#accessCode=${encodeURIComponent(roomAccessCode)}` : "";
+  window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}${suffix}${fragment}` : "/");
 }
 
 function updateJoinModeButtons() {
@@ -673,9 +673,9 @@ async function copyRoomLink() {
   try {
     const params = new URLSearchParams();
     if (callMode === "conference") params.set("mode", "conference");
-    if (roomAccessCode) params.set("accessCode", roomAccessCode);
     const suffix = params.size ? `?${params.toString()}` : "";
-    await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}${suffix}`);
+    const fragment = roomAccessCode ? `#accessCode=${encodeURIComponent(roomAccessCode)}` : "";
+    await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}${suffix}${fragment}`);
     $("copyRoomLink").textContent = "Copied!";
     $("lobbyCopyLink").textContent = "Invite link copied";
     $("panelCopyLink").textContent = "Invite link copied";
@@ -691,9 +691,10 @@ async function copyRoomLink() {
 
 async function createProtectedRoom(mode) {
   if (!$("createProtected").checked) {
-    setRoom(createRoomCode(), mode);
     roomAccessCode = "";
-    setRoom(roomId, mode);
+    $("accessCode").value = "";
+    $("protected-room-details").hidden = true;
+    setRoom(createRoomCode(), mode);
     lobbyError.textContent = mode === "conference"
       ? "Conference link ready. Share it, then join when you’re ready."
       : "Meeting link ready. Share it, then join when you’re ready.";
@@ -709,19 +710,22 @@ async function createProtectedRoom(mode) {
     });
     if (!response.ok) {
       if (response.status === 503) {
-        lobbyError.textContent = "Protected rooms are not enabled on this server. Set ROOM_ACCESS_SECRET on the server, then try again.";
+        lobbyError.textContent = "Protected rooms are unavailable. The server needs ROOM_ACCESS_SECRET and a database connection.";
         return;
       }
       lobbyError.textContent = `Could not create protected room (${response.status}).`;
       return;
     }
     const created = await response.json();
-    if (!created.room || !created.accessCode) {
+    if (!created.room || !created.accessCode || !/^\d{10}$/.test(created.meetingId)) {
       lobbyError.textContent = "Could not create protected room: the server returned an incomplete response.";
       return;
     }
     roomAccessCode = created.accessCode;
     $("accessCode").value = created.accessCode;
+    $("protected-room-details").textContent =
+      `Meeting ID: ${created.meetingId} · Password: ${created.accessCode}. Share these or copy the invite link.`;
+    $("protected-room-details").hidden = false;
     setRoom(created.room, mode);
     lobbyError.textContent = "Protected meeting link ready. Share it, then join when you’re ready.";
   } catch (error) {
@@ -729,8 +733,55 @@ async function createProtectedRoom(mode) {
   }
 }
 
+async function joinByMeetingCredentials(mode) {
+  const name = saveName();
+  if (!name) {
+    lobbyError.textContent = "Enter your name before joining.";
+    displayNameInput.focus();
+    return;
+  }
+  const meetingId = $("meetingIdInput").value.trim();
+  const password = $("meetingPasswordInput").value.trim();
+  if (!/^\d{10}$/.test(meetingId) || !/^\d{6}$/.test(password)) {
+    lobbyError.textContent = "Enter a 10-digit meeting ID and a 6-digit password.";
+    return;
+  }
+
+  lobbyError.textContent = "";
+  try {
+    const response = await fetch("/api/rooms/resolve", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId, password })
+    });
+    if (!response.ok) {
+      if (response.status === 403) {
+        lobbyError.textContent = "Meeting ID or password is incorrect.";
+      } else {
+        const detail = (await response.text()).trim();
+        lobbyError.textContent = detail || `Could not join meeting (${response.status}).`;
+      }
+      return;
+    }
+    const resolved = await response.json();
+    if (!resolved.room || !resolved.accessCode) {
+      lobbyError.textContent = "Could not join meeting: the server returned an incomplete response.";
+      return;
+    }
+    $("accessCode").value = resolved.accessCode;
+    roomAccessCode = resolved.accessCode;
+    $("protected-room-details").hidden = true;
+    await joinRoom(resolved.room, mode);
+  } catch (error) {
+    lobbyError.textContent = `Could not join meeting: ${error.message}`;
+  }
+}
+
 $("createMeeting").addEventListener("click", () => createProtectedRoom("p2p"));
 $("createConference").addEventListener("click", () => createProtectedRoom("conference"));
+$("joinByMeetingId").addEventListener("click", () => joinByMeetingCredentials("p2p"));
+$("joinConferenceByMeetingId").addEventListener("click", () => joinByMeetingCredentials("conference"));
 $("lobbyCopyLink").addEventListener("click", async () => {
   if (!roomId) {
     lobbyError.textContent = "Create a meeting first.";
@@ -876,7 +927,8 @@ if (window.matchMedia("(max-width: 767px)").matches) deviceSettings.open = false
 roomId = roomFromLocation();
 if (roomId) {
   const locationParams = new URLSearchParams(window.location.search);
-  roomAccessCode = (locationParams.get("accessCode") || "").trim();
+  const locationFragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  roomAccessCode = (locationFragment.get("accessCode") || locationParams.get("accessCode") || "").trim();
   $("accessCode").value = roomAccessCode;
   callMode = locationParams.get("mode") === "conference" ? "conference" : "p2p";
   updateJoinModeButtons();

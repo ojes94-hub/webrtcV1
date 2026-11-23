@@ -5,3 +5,8 @@ webrtcV1.exe
 *.pem
 app.exe
 app
+.neon
+node_modules/
+.env
+.env.*
+!.env.example

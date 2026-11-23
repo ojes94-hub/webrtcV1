@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base32"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -19,8 +22,8 @@ import (
 
 const (
 	protectedRoomPrefix = "pr1_"
-	roomAccessWindow    = time.Minute
 	protectedNonceBytes = 10
+	maxRateLimitEntries = 10000
 )
 
 var protectedBase32 = base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -32,10 +35,11 @@ type rateLimitEntry struct {
 }
 
 type rateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	entries map[string]*rateLimitEntry
+	mu         sync.Mutex
+	limit      int
+	window     time.Duration
+	maxEntries int
+	entries    map[string]*rateLimitEntry
 }
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
@@ -45,23 +49,29 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	if window < time.Second {
 		window = time.Minute
 	}
-	return &rateLimiter{limit: limit, window: window, entries: make(map[string]*rateLimitEntry)}
+	return &rateLimiter{
+		limit:      limit,
+		window:     window,
+		maxEntries: maxRateLimitEntries,
+		entries:    make(map[string]*rateLimitEntry),
+	}
 }
 
 func (l *rateLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if len(l.entries) > 0 {
-		for existingKey, entry := range l.entries {
-			if now.Sub(entry.lastSeen) > 2*l.window {
-				delete(l.entries, existingKey)
-			}
+	for existingKey, entry := range l.entries {
+		if now.Sub(entry.lastSeen) > 2*l.window {
+			delete(l.entries, existingKey)
 		}
 	}
 
 	entry := l.entries[key]
 	if entry == nil || !now.Before(entry.resetAt) {
+		if entry == nil && len(l.entries) >= l.maxEntries {
+			l.evictOldest()
+		}
 		entry = &rateLimitEntry{resetAt: now.Add(l.window)}
 		l.entries[key] = entry
 	}
@@ -71,6 +81,20 @@ func (l *rateLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	}
 	entry.count++
 	return true, entry.resetAt.Sub(now)
+}
+
+func (l *rateLimiter) evictOldest() {
+	var oldestKey string
+	var oldestSeen time.Time
+	for key, entry := range l.entries {
+		if oldestKey == "" || entry.lastSeen.Before(oldestSeen) {
+			oldestKey = key
+			oldestSeen = entry.lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(l.entries, oldestKey)
+	}
 }
 
 func (l *rateLimiter) len() int {
@@ -84,12 +108,17 @@ var (
 	rateLimitConfig        = ""
 	conferenceTokenLimiter = newRateLimiter(60, time.Minute)
 	roomCreateLimiter      = newRateLimiter(10, time.Minute)
+	roomAccessLimiter      = newRateLimiter(10, 15*time.Minute)
 )
 
 func syncRateLimiters() {
 	tokenLimit, tokenWindow := configuredRateLimit("CONFERENCE_TOKEN_RATE_LIMIT", "CONFERENCE_TOKEN_RATE_WINDOW_SECONDS", 60)
 	createLimit, createWindow := configuredRateLimit("ROOM_CREATE_RATE_LIMIT", "ROOM_CREATE_RATE_WINDOW_SECONDS", 10)
-	config := strconv.Itoa(tokenLimit) + "/" + tokenWindow.String() + "/" + strconv.Itoa(createLimit) + "/" + createWindow.String()
+	accessLimit, accessWindow := configuredRateLimitDefaults(
+		"ROOM_ACCESS_ATTEMPT_LIMIT", "ROOM_ACCESS_ATTEMPT_WINDOW_SECONDS", 10, 900,
+	)
+	config := strconv.Itoa(tokenLimit) + "/" + tokenWindow.String() + "/" + strconv.Itoa(createLimit) + "/" + createWindow.String() +
+		"/" + strconv.Itoa(accessLimit) + "/" + accessWindow.String()
 
 	rateLimitMu.Lock()
 	defer rateLimitMu.Unlock()
@@ -98,15 +127,20 @@ func syncRateLimiters() {
 	}
 	conferenceTokenLimiter = newRateLimiter(tokenLimit, tokenWindow)
 	roomCreateLimiter = newRateLimiter(createLimit, createWindow)
+	roomAccessLimiter = newRateLimiter(accessLimit, accessWindow)
 	rateLimitConfig = config
 }
 
 func configuredRateLimit(limitName, windowName string, defaultLimit int) (int, time.Duration) {
+	return configuredRateLimitDefaults(limitName, windowName, defaultLimit, 60)
+}
+
+func configuredRateLimitDefaults(limitName, windowName string, defaultLimit, defaultWindowSeconds int) (int, time.Duration) {
 	limit := defaultLimit
 	if value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(limitName))); err == nil && value > 0 {
 		limit = value
 	}
-	windowSeconds := 60
+	windowSeconds := defaultWindowSeconds
 	if value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(windowName))); err == nil && value >= 1 {
 		windowSeconds = value
 	}
@@ -114,7 +148,11 @@ func configuredRateLimit(limitName, windowName string, defaultLimit int) (int, t
 }
 
 func allowRateLimit(w http.ResponseWriter, r *http.Request, limiter *rateLimiter) bool {
-	allowed, retryAfter := limiter.allow(clientIP(r), time.Now())
+	return allowRateLimitKey(w, r, limiter, clientIP(r))
+}
+
+func allowRateLimitKey(w http.ResponseWriter, r *http.Request, limiter *rateLimiter, key string) bool {
+	allowed, retryAfter := limiter.allow(key, time.Now())
 	if allowed {
 		return true
 	}
@@ -213,22 +251,70 @@ func protectedRoomNonceShape(roomID string) (string, bool) {
 }
 
 func verifyProtectedRoomAccess(roomID, accessCode string) bool {
+	allowed, err := protectedRoomAccess(roomID, accessCode)
+	return err == nil && allowed
+}
+
+func protectedRoomAccess(roomID, accessCode string) (bool, error) {
+	if isProtectedRoomV2ID(roomID) {
+		db, err := protectedRoomDB()
+		if err != nil {
+			return false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var storedHash []byte
+		err = db.QueryRowContext(ctx,
+			"SELECT password_hash FROM protected_rooms WHERE room_id = $1", roomID,
+		).Scan(&storedHash)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !isRoomAccessEnabled() || !validProtectedRoomV2ID(roomID) {
+			return false, nil
+		}
+		expectedHash := protectedRoomPasswordHash(roomID, accessCode)
+		return len(storedHash) == len(expectedHash) &&
+			subtle.ConstantTimeCompare(storedHash, expectedHash) == 1, nil
+	}
 	if !isRoomAccessEnabled() {
-		return true
+		return true, nil
 	}
 	nonceText, shape := protectedRoomNonceShape(roomID)
 	if !shape {
-		return true
+		return true, nil
 	}
 	validNonce, protected := protectedRoomNonce(roomID)
 	if !protected || validNonce != nonceText {
-		return false
+		return false, nil
 	}
 	expected := protectedRoomAccessCode(nonceText)
 	if len(accessCode) != len(expected) {
+		return false, nil
+	}
+	return subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(accessCode))), []byte(expected)) == 1, nil
+}
+
+func roomAccessRateLimited(w http.ResponseWriter, r *http.Request, roomID string) bool {
+	if !isRoomAccessEnabled() || !isRecognizedProtectedRoomID(roomID) {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(accessCode))), []byte(expected)) == 1
+	syncRateLimiters()
+	rateLimitMu.Lock()
+	limiter := roomAccessLimiter
+	rateLimitMu.Unlock()
+	return !allowRateLimit(w, r, limiter)
+}
+
+func isRecognizedProtectedRoomID(roomID string) bool {
+	if validProtectedRoomV2ID(roomID) {
+		return true
+	}
+	_, recognized := protectedRoomNonce(roomID)
+	return recognized
 }
 
 func handleRoomCreate(w http.ResponseWriter, r *http.Request) {
@@ -267,12 +353,72 @@ func handleRoomCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	roomID, accessCode, err := randomProtectedRoom()
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	roomID, meetingID, accessCode, err := createStoredProtectedRoom(ctx)
 	if err != nil {
-		http.Error(w, "could not create protected room", http.StatusInternalServerError)
+		http.Error(w, "protected room service is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]string{"room": roomID, "accessCode": accessCode})
+	_ = json.NewEncoder(w).Encode(struct {
+		Room       string `json:"room"`
+		AccessCode string `json:"accessCode"`
+		MeetingID  string `json:"meetingId"`
+	}{Room: roomID, AccessCode: accessCode, MeetingID: meetingID})
+}
+
+func handleRoomResolve(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !isRoomAccessEnabled() {
+		http.Error(w, "room access control is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	syncRateLimiters()
+	rateLimitMu.Lock()
+	limiter := roomAccessLimiter
+	rateLimitMu.Unlock()
+	if !allowRateLimit(w, r, limiter) {
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		http.Error(w, "content type must be application/json", http.StatusBadRequest)
+		return
+	}
+	var input struct {
+		MeetingID string `json:"meetingId"`
+		Password  string `json:"password"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 8*1024))
+	if err := decoder.Decode(&input); err != nil {
+		http.Error(w, "invalid JSON request", http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		http.Error(w, "request must contain one JSON object", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	roomID, allowed, err := resolveStoredMeeting(ctx, input.MeetingID, input.Password)
+	if err != nil {
+		http.Error(w, "protected room service is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		Room       string `json:"room"`
+		AccessCode string `json:"accessCode"`
+	}{Room: roomID, AccessCode: input.Password})
 }

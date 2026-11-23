@@ -75,7 +75,7 @@
       </label>
       <div class="divider"><span>or</span></div>
       <form id="joinForm" class="join-form">
-        <label for="roomCode">Join with a room code</label>
+        <label for="roomCode">Join with a room code or invite link</label>
         <div class="join-row">
           <input id="roomCode" name="roomCode" autocomplete="off" placeholder="Paste a room code" maxlength="64">
           <div class="join-actions">
@@ -87,7 +87,23 @@
           <input id="accessCode" name="accessCode" autocomplete="off" placeholder="Enter access code">
         </label>
       </form>
+      <form id="meetingJoinForm" class="meeting-join-form">
+        <p class="meeting-join-title">Or join with a meeting ID</p>
+        <div class="meeting-credentials-inputs">
+          <label for="meetingIdInput">10-digit meeting ID
+            <input id="meetingIdInput" name="meetingId" inputmode="numeric" autocomplete="off" pattern="[0-9]{10}" maxlength="10" placeholder="7069567577">
+          </label>
+          <label for="meetingPasswordInput">6-digit password
+            <input id="meetingPasswordInput" name="password" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{6}" maxlength="6" placeholder="234567">
+          </label>
+        </div>
+        <div class="join-actions meeting-join-actions">
+          <button id="joinByMeetingId" class="button button-secondary" type="button">Join 1-on-1</button>
+          <button id="joinConferenceByMeetingId" class="button button-secondary" type="button">Join conference</button>
+        </div>
+      </form>
       <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button" hidden>Copy invite link</button>
+      <p id="protected-room-details" class="room-credentials" role="status" hidden></p>
       <p id="lobby-error" class="error-message" role="alert"></p>
     </section>
   </main>
