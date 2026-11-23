@@ -29,6 +29,7 @@ button { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 .app-toast { z-index: 100; position: fixed; left: 50%; bottom: 96px; max-width: min(420px, calc(100vw - 32px)); border: 1px solid var(--border); border-radius: 10px; background: var(--drawer); box-shadow: 0 10px 30px rgba(0,0,0,.4); padding: 12px 16px; color: var(--text); font-size: 13px; transform: translateX(-50%); }
+.app-toast.success { border-color: #81c995; color: #81c995; }
 svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 
 .topbar { height: 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-bottom: 1px solid var(--border); background: var(--background); }
@@ -49,6 +50,7 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 .preview-heading .eyebrow { margin-bottom: 5px; font-size: 10px; }
 .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .preview-state { color: var(--muted); font-size: 12px; }
+.preview-state.success { color: #81c995; }
 .preview-video-wrap { position: relative; aspect-ratio: 16/10; overflow: hidden; border-radius: 16px; background: var(--surface-raised); }
 .preview-video-wrap video { width: 100%; height: 100%; display: block; object-fit: cover; transform: scaleX(-1); }
 .preview-placeholder { position: absolute; inset: 0; display: grid; place-items: center; }
@@ -74,6 +76,7 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 .button-primary { background: var(--accent); color: #202124; }
 .button-secondary { border-color: var(--border); background: var(--surface-raised); }
 .button-quiet { border-color: var(--border); background: transparent; }
+.button-success { border-color: #81c995; color: #81c995; }
 .button-large { width: 100%; }
 .create-actions { display: grid; gap: 8px; }
 .protected-option { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 12px; cursor: pointer; }
@@ -96,6 +99,7 @@ svg { display: block; width: 22px; height: 22px; fill: currentColor; }
 .join-actions .button { flex: 1; min-width: 0; padding: 0 8px; }
 .copy-link { width: 100%; margin-top: 10px; }
 .error-message { min-height: 18px; margin: 12px 0 0; color: #ffaaa1; font-size: 13px; }
+.error-message.success { color: #81c995; }
 
 .call-view { position: relative; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--background); }
 .presenter-banner { height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 10px; margin: 12px 16px 0; border-radius: 8px; background: var(--drawer); padding: 8px 12px; font-size: 14px; }

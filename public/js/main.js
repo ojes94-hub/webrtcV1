@@ -50,9 +50,16 @@ let captionsEnabled = false;
 let mobilePinnedPeerId = "";
 let joinNoticeTimer = null;
 
-function showJoinToast(message) {
+function setLobbyFeedback(message, tone = "error") {
+  lobbyError.textContent = message;
+  lobbyError.classList.toggle("success", tone === "success");
+  lobbyError.setAttribute("role", tone === "success" ? "status" : "alert");
+}
+
+function showJoinToast(message, tone = "success") {
   const toast = $("app-toast");
   toast.textContent = message;
+  toast.classList.toggle("success", tone === "success");
   toast.hidden = false;
   window.clearTimeout(joinNoticeTimer);
   joinNoticeTimer = window.setTimeout(() => { toast.hidden = true; }, 5000);
@@ -174,13 +181,14 @@ function fillDeviceSelect(select, devices, defaultLabel, selectedId) {
 }
 
 async function togglePreview() {
-  lobbyError.textContent = "";
+  setLobbyFeedback("");
   if (previewStream) {
     previewStream.getTracks().forEach((track) => track.stop());
     previewStream = null;
     previewVideo.srcObject = null;
     previewPlaceholder.hidden = false;
     previewState.textContent = "Camera off";
+    previewState.classList.remove("success");
     $("startPreview").textContent = "Enable camera preview";
     $("startPreview").setAttribute("aria-pressed", "false");
     return;
@@ -190,35 +198,38 @@ async function togglePreview() {
     if (!previewStream) {
       previewPlaceholder.hidden = false;
       previewState.textContent = "No camera or mic detected";
+      previewState.classList.remove("success");
       $("startPreview").textContent = "Preview unavailable";
       $("startPreview").setAttribute("aria-pressed", "false");
-      lobbyError.textContent = "You can still join in listen/view-only mode.";
+      setLobbyFeedback("You can still join in listen/view-only mode.", "success");
       return;
     }
     previewVideo.srcObject = previewStream;
     previewPlaceholder.hidden = true;
     previewState.textContent = "Camera and mic ready";
+    previewState.classList.add("success");
     $("startPreview").textContent = "Turn preview off";
     $("startPreview").setAttribute("aria-pressed", "true");
     await refreshDevices();
   } catch (error) {
-    lobbyError.textContent = `Could not start preview: ${error.message}`;
+    previewState.classList.remove("success");
+    setLobbyFeedback(`Could not start preview: ${error.message}`);
   }
 }
 
 async function joinRoom(room, mode = callMode) {
   const name = saveName();
   if (!name) {
-    lobbyError.textContent = "Enter your name before joining.";
+    setLobbyFeedback("Enter your name before joining.");
     displayNameInput.focus();
     return;
   }
   if (!isValidRoomCode(room)) {
-    lobbyError.textContent = "Enter a valid room code (3–64 letters, numbers, dashes, or underscores).";
+    setLobbyFeedback("Enter a valid room code (3–64 letters, numbers, dashes, or underscores).");
     return;
   }
 
-  lobbyError.textContent = "";
+  setLobbyFeedback("");
   roomAccessCode = $("accessCode").value.trim();
   setRoom(room, mode);
   $("chat-messages").replaceChildren();
@@ -282,7 +293,7 @@ async function joinRoom(room, mode = callMode) {
     $("connection-indicator").hidden = true;
     await callSession.leave();
     callSession = null;
-    lobbyError.textContent = `Could not join the room: ${error.message}`;
+    setLobbyFeedback(`Could not join the room: ${error.message}`);
   }
 }
 
@@ -664,6 +675,7 @@ async function leaveCall() {
   raisedHand = false;
   $("raiseHand").setAttribute("aria-pressed", "false");
   previewState.textContent = "Camera off";
+  previewState.classList.remove("success");
   previewPlaceholder.hidden = false;
   $("startPreview").textContent = "Enable camera preview";
 }
@@ -679,13 +691,15 @@ async function copyRoomLink() {
     $("copyRoomLink").textContent = "Copied!";
     $("lobbyCopyLink").textContent = "Invite link copied";
     $("panelCopyLink").textContent = "Invite link copied";
+    [$("copyRoomLink"), $("lobbyCopyLink"), $("panelCopyLink")].forEach((button) => button.classList.add("button-success"));
     window.setTimeout(() => {
       $("copyRoomLink").textContent = "Copy invite link";
       $("lobbyCopyLink").textContent = "Copy invite link";
       $("panelCopyLink").textContent = "Copy meeting link";
+      [$("copyRoomLink"), $("lobbyCopyLink"), $("panelCopyLink")].forEach((button) => button.classList.remove("button-success"));
     }, 1600);
   } catch (error) {
-    lobbyError.textContent = `Could not copy link: ${error.message}`;
+    setLobbyFeedback(`Could not copy link: ${error.message}`);
   }
 }
 
@@ -695,9 +709,9 @@ async function createProtectedRoom(mode) {
     $("accessCode").value = "";
     $("protected-room-details").hidden = true;
     setRoom(createRoomCode(), mode);
-    lobbyError.textContent = mode === "conference"
+    setLobbyFeedback(mode === "conference"
       ? "Conference link ready. Share it, then join when you’re ready."
-      : "Meeting link ready. Share it, then join when you’re ready.";
+      : "Meeting link ready. Share it, then join when you’re ready.", "success");
     return;
   }
 
@@ -710,15 +724,15 @@ async function createProtectedRoom(mode) {
     });
     if (!response.ok) {
       if (response.status === 503) {
-        lobbyError.textContent = "Protected rooms are unavailable. The server needs ROOM_ACCESS_SECRET and a database connection.";
+        setLobbyFeedback("Protected rooms are unavailable. The server needs ROOM_ACCESS_SECRET and a database connection.");
         return;
       }
-      lobbyError.textContent = `Could not create protected room (${response.status}).`;
+      setLobbyFeedback(`Could not create protected room (${response.status}).`);
       return;
     }
     const created = await response.json();
     if (!created.room || !created.accessCode || !/^\d{10}$/.test(created.meetingId)) {
-      lobbyError.textContent = "Could not create protected room: the server returned an incomplete response.";
+      setLobbyFeedback("Could not create protected room: the server returned an incomplete response.");
       return;
     }
     roomAccessCode = created.accessCode;
@@ -727,27 +741,27 @@ async function createProtectedRoom(mode) {
       `Meeting ID: ${created.meetingId} · Password: ${created.accessCode}. Share these or copy the invite link.`;
     $("protected-room-details").hidden = false;
     setRoom(created.room, mode);
-    lobbyError.textContent = "Protected meeting link ready. Share it, then join when you’re ready.";
+    setLobbyFeedback("Protected meeting link ready. Share it, then join when you’re ready.", "success");
   } catch (error) {
-    lobbyError.textContent = `Could not create protected room: ${error.message}`;
+    setLobbyFeedback(`Could not create protected room: ${error.message}`);
   }
 }
 
 async function joinByMeetingCredentials(mode) {
   const name = saveName();
   if (!name) {
-    lobbyError.textContent = "Enter your name before joining.";
+    setLobbyFeedback("Enter your name before joining.");
     displayNameInput.focus();
     return;
   }
   const meetingId = $("meetingIdInput").value.trim();
   const password = $("meetingPasswordInput").value.trim();
   if (!/^\d{10}$/.test(meetingId) || !/^\d{6}$/.test(password)) {
-    lobbyError.textContent = "Enter a 10-digit meeting ID and a 6-digit password.";
+    setLobbyFeedback("Enter a 10-digit meeting ID and a 6-digit password.");
     return;
   }
 
-  lobbyError.textContent = "";
+  setLobbyFeedback("");
   try {
     const response = await fetch("/api/rooms/resolve", {
       method: "POST",
@@ -757,16 +771,16 @@ async function joinByMeetingCredentials(mode) {
     });
     if (!response.ok) {
       if (response.status === 403) {
-        lobbyError.textContent = "Meeting ID or password is incorrect.";
+        setLobbyFeedback("Meeting ID or password is incorrect.");
       } else {
         const detail = (await response.text()).trim();
-        lobbyError.textContent = detail || `Could not join meeting (${response.status}).`;
+        setLobbyFeedback(detail || `Could not join meeting (${response.status}).`);
       }
       return;
     }
     const resolved = await response.json();
     if (!resolved.room || !resolved.accessCode) {
-      lobbyError.textContent = "Could not join meeting: the server returned an incomplete response.";
+      setLobbyFeedback("Could not join meeting: the server returned an incomplete response.");
       return;
     }
     $("accessCode").value = resolved.accessCode;
@@ -774,7 +788,7 @@ async function joinByMeetingCredentials(mode) {
     $("protected-room-details").hidden = true;
     await joinRoom(resolved.room, mode);
   } catch (error) {
-    lobbyError.textContent = `Could not join meeting: ${error.message}`;
+    setLobbyFeedback(`Could not join meeting: ${error.message}`);
   }
 }
 
@@ -784,7 +798,7 @@ $("joinByMeetingId").addEventListener("click", () => joinByMeetingCredentials("p
 $("joinConferenceByMeetingId").addEventListener("click", () => joinByMeetingCredentials("conference"));
 $("lobbyCopyLink").addEventListener("click", async () => {
   if (!roomId) {
-    lobbyError.textContent = "Create a meeting first.";
+    setLobbyFeedback("Create a meeting first.");
     return;
   }
   await copyRoomLink();
@@ -793,7 +807,7 @@ $("joinForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const room = parseRoomInput(roomCodeInput.value);
   if (!isValidRoomCode(room)) {
-    lobbyError.textContent = "Enter a valid room code or meeting link.";
+    setLobbyFeedback("Enter a valid room code or meeting link.");
     return;
   }
   joinRoom(room, callMode);
@@ -801,7 +815,7 @@ $("joinForm").addEventListener("submit", (event) => {
 $("joinConference").addEventListener("click", () => {
   const room = parseRoomInput(roomCodeInput.value);
   if (!isValidRoomCode(room)) {
-    lobbyError.textContent = "Enter a valid room code or meeting link.";
+    setLobbyFeedback("Enter a valid room code or meeting link.");
     return;
   }
   joinRoom(room, callMode === "conference" ? "p2p" : "conference");
