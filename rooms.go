@@ -338,6 +338,10 @@ func handleSignaling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "valid room query parameter is required", http.StatusBadRequest)
 		return
 	}
+	if !verifyProtectedRoomAccess(roomID, r.URL.Query().Get("accessCode")) {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
 	name, err := cleanDisplayName(r.URL.Query().Get("name"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

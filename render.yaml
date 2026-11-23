@@ -7,3 +7,15 @@ services:
     envVars:
       - key: PORT
         value: 8080
+      # Optional room access control. No default or secret is configured.
+      # - key: ROOM_ACCESS_SECRET
+      #   sync: false
+      # Optional abuse-protection tuning.
+      # - key: CONFERENCE_TOKEN_RATE_LIMIT
+      #   value: 60
+      # - key: CONFERENCE_TOKEN_RATE_WINDOW_SECONDS
+      #   value: 60
+      # - key: ROOM_CREATE_RATE_LIMIT
+      #   value: 10
+      # - key: ROOM_CREATE_RATE_WINDOW_SECONDS
+      #   value: 60

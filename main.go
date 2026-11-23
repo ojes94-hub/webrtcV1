@@ -80,6 +80,7 @@ func newHandler() (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	syncRateLimiters()
 	fileServer := http.FileServer(http.FS(publicFS))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveIndex)
@@ -88,6 +89,7 @@ func newHandler() (http.Handler, error) {
 	mux.HandleFunc("/ws", handleSignaling)
 	mux.HandleFunc("/api/ice-servers", handleICEServers)
 	mux.HandleFunc("/api/conference-token", handleConferenceToken)
+	mux.HandleFunc("/api/rooms", handleRoomCreate)
 	mux.Handle("/css/", fileServer)
 	mux.Handle("/js/", fileServer)
 	mux.Handle("/images/", fileServer)

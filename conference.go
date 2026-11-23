@@ -18,9 +18,10 @@ import (
 )
 
 type conferenceTokenRequest struct {
-	Room     string `json:"room"`
-	Username string `json:"username"`
-	UserID   string `json:"userId,omitempty"`
+	Room       string `json:"room"`
+	Username   string `json:"username"`
+	UserID     string `json:"userId,omitempty"`
+	AccessCode string `json:"accessCode,omitempty"`
 }
 
 type conferenceTokenClaims struct {
@@ -49,6 +50,13 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	syncRateLimiters()
+	rateLimitMu.Lock()
+	limiter := conferenceTokenLimiter
+	rateLimitMu.Unlock()
+	if !allowRateLimit(w, r, limiter) {
+		return
+	}
 
 	input, err := parseConferenceTokenRequest(r)
 	if err != nil {
@@ -67,6 +75,10 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 	userID, err := cleanConferenceUserID(input.UserID)
 	if err != nil {
 		http.Error(w, "invalid userId", http.StatusBadRequest)
+		return
+	}
+	if !verifyProtectedRoomAccess(input.Room, input.AccessCode) {
+		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}
 
@@ -90,9 +102,10 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 func parseConferenceTokenRequest(r *http.Request) (conferenceTokenRequest, error) {
 	if r.Method == http.MethodGet {
 		return conferenceTokenRequest{
-			Room:     r.URL.Query().Get("room"),
-			Username: r.URL.Query().Get("username"),
-			UserID:   r.URL.Query().Get("userId"),
+			Room:       r.URL.Query().Get("room"),
+			Username:   r.URL.Query().Get("username"),
+			UserID:     r.URL.Query().Get("userId"),
+			AccessCode: r.URL.Query().Get("accessCode"),
 		}, nil
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {

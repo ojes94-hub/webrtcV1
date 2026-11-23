@@ -543,3 +543,204 @@ func testPeer(id, roomID, name string) *Peer {
 		done:   make(chan struct{}),
 	}
 }
+
+func TestProtectedRoomAccessAndLegacyCompatibility(t *testing.T) {
+	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
+	t.Setenv("ROOM_ACCESS_SECRET", "test-room-secret")
+	t.Setenv("CONFERENCE_TOKEN_RATE_LIMIT", "100")
+
+	roomID, accessCode, err := randomProtectedRoom()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validRoomID(roomID) {
+		t.Fatalf("protected room ID %q does not match the room ID rule", roomID)
+	}
+
+	requestToken := func(code string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"room":"` + roomID + `","username":"Alice","accessCode":"` + code + `","newClientField":{"ignored":true}}`
+		req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		handleConferenceToken(res, req)
+		return res
+	}
+
+	missing := requestToken("")
+	if missing.Code != http.StatusForbidden || missing.Body.String() != "access denied\n" {
+		t.Fatalf("missing code = %d %q", missing.Code, missing.Body.String())
+	}
+	wrong := requestToken("WRONG-CODE")
+	if wrong.Code != http.StatusForbidden || wrong.Body.String() != missing.Body.String() {
+		t.Fatalf("wrong code = %d %q, want same generic 403", wrong.Code, wrong.Body.String())
+	}
+	correct := requestToken(accessCode)
+	if correct.Code != http.StatusOK {
+		t.Fatalf("correct code status = %d: %s", correct.Code, correct.Body.String())
+	}
+
+	t.Setenv("ROOM_ACCESS_SECRET", "")
+	legacy := requestToken("")
+	if legacy.Code != http.StatusOK {
+		t.Fatalf("legacy room behavior with feature off status = %d: %s", legacy.Code, legacy.Body.String())
+	}
+
+	t.Setenv("ROOM_ACCESS_SECRET", "test-room-secret")
+	normalRoom := `{"room":"team-room","username":"Alice","accessCode":"not-used","unknown":"accepted"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/conference-token", strings.NewReader(normalRoom))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handleConferenceToken(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("normal room with accessCode status = %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestProtectedRoomTamperAndSecretRestartBehavior(t *testing.T) {
+	t.Setenv("ROOM_ACCESS_SECRET", "first-secret")
+	roomID, accessCode, err := randomProtectedRoom()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce, protected := protectedRoomNonce(roomID)
+	if !protected || nonce == "" {
+		t.Fatal("generated room was not recognized as protected")
+	}
+	if !verifyProtectedRoomAccess(roomID, accessCode) {
+		t.Fatal("same secret could not verify generated room")
+	}
+
+	tampered := roomID[:len(roomID)-1] + "_"
+	if !validRoomID(tampered) {
+		tampered = roomID[:len(roomID)-1] + "x"
+	}
+	if _, protected = protectedRoomNonce(tampered); protected {
+		t.Fatal("tampered room ID was still recognized as protected")
+	}
+
+	t.Setenv("ROOM_ACCESS_SECRET", "second-secret")
+	if verifyProtectedRoomAccess(roomID, accessCode) {
+		t.Fatal("different secret accepted a protected room")
+	}
+
+	t.Setenv("ROOM_ACCESS_SECRET", "first-secret")
+	if !verifyProtectedRoomAccess(roomID, accessCode) {
+		t.Fatal("restart with the same secret rejected the room")
+	}
+}
+
+func TestRoomCreateAndProtectedWebSocketAccess(t *testing.T) {
+	t.Setenv("ROOM_ACCESS_SECRET", "test-room-secret")
+	t.Setenv("ROOM_CREATE_RATE_LIMIT", "100")
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"unknownField":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handleRoomCreate(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("room create status = %d: %s", res.Code, res.Body.String())
+	}
+	var created struct {
+		Room       string `json:"room"`
+		AccessCode string `json:"accessCode"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if _, protected := protectedRoomNonce(created.Room); !protected {
+		t.Fatal("created room is not protected")
+	}
+
+	handler, err := newHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsBase := "ws" + strings.TrimPrefix(server.URL, "http")
+	for _, suffix := range []string{"", "&accessCode=wrong"} {
+		conn, _, err := websocket.DefaultDialer.Dial(wsBase+"/ws?room="+created.Room+"&name=Alice"+suffix, nil)
+		if err == nil {
+			_ = conn.Close()
+			t.Fatal("protected WebSocket join unexpectedly succeeded")
+		}
+	}
+
+	wsURL := wsBase + "/ws?room=" + created.Room + "&name=Alice&accessCode=" + created.AccessCode
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("correct protected WebSocket join failed: %v", err)
+	}
+	defer conn.Close()
+}
+
+func TestRoomCreateDisabledAndUnknownFields(t *testing.T) {
+	t.Setenv("ROOM_ACCESS_SECRET", "")
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms", strings.NewReader(`{"ignored":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handleRoomCreate(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("room create feature-off status = %d, want 503", res.Code)
+	}
+}
+
+func TestRateLimiterBurstAndEviction(t *testing.T) {
+	limiter := newRateLimiter(3, time.Minute)
+	now := time.Now()
+	for index := 0; index < 3; index++ {
+		allowed, _ := limiter.allow("198.51.100.10", now)
+		if !allowed {
+			t.Fatalf("normal burst request %d was limited", index+1)
+		}
+	}
+	allowed, retryAfter := limiter.allow("198.51.100.10", now)
+	if allowed || retryAfter <= 0 {
+		t.Fatalf("excessive burst allowed=%v retryAfter=%v", allowed, retryAfter)
+	}
+	if got := limiter.len(); got != 1 {
+		t.Fatalf("limiter entries = %d, want 1", got)
+	}
+	for index := 0; index < 100; index++ {
+		limiter.allow("old-entry-"+strconv.Itoa(index), now)
+	}
+	limiter.allow("recent-entry", now.Add(3*time.Minute))
+	if got := limiter.len(); got > 101 {
+		t.Fatalf("limiter map grew unbounded: %d entries", got)
+	}
+}
+
+func TestConferenceTokenReturnsRateLimitWithRetryAfter(t *testing.T) {
+	t.Setenv("LIVEKIT_URL", "wss://livekit.example.test")
+	t.Setenv("LIVEKIT_API_KEY", "test-api-key")
+	t.Setenv("LIVEKIT_API_SECRET", "test-api-secret")
+	t.Setenv("CONFERENCE_TOKEN_RATE_LIMIT", "2")
+	t.Setenv("CONFERENCE_TOKEN_RATE_WINDOW_SECONDS", "60")
+
+	for index := 0; index < 3; index++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/conference-token",
+			strings.NewReader(`{"room":"team-room","username":"Alice"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.20:12345"
+		res := httptest.NewRecorder()
+		handleConferenceToken(res, req)
+		if index < 2 {
+			if res.Code != http.StatusOK {
+				t.Fatalf("normal burst request %d status = %d: %s", index+1, res.Code, res.Body.String())
+			}
+		} else {
+			if res.Code != http.StatusTooManyRequests {
+				t.Fatalf("excessive burst status = %d, want 429", res.Code)
+			}
+			if res.Header().Get("Retry-After") == "" {
+				t.Fatal("429 response missing Retry-After")
+			}
+			if res.Body.String() != "too many requests\n" {
+				t.Fatalf("429 body = %q", res.Body.String())
+			}
+		}
+	}
+}
