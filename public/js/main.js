@@ -36,6 +36,7 @@ function participantIdForTileKey(tileKey) {
 }
 
 let roomId = "";
+let roomAccessCode = "";
 let previewStream = null;
 let callSession = null;
 let callMode = "p2p";
@@ -76,7 +77,10 @@ function setRoom(room, mode = callMode) {
   $("call-room-name").textContent = `Room ${room}`;
   $("room-toolbar").hidden = !room;
   $("lobbyCopyLink").hidden = !room;
-  const suffix = room && mode === "conference" ? "?mode=conference" : "";
+  const params = new URLSearchParams();
+  if (mode === "conference") params.set("mode", "conference");
+  if (roomAccessCode) params.set("accessCode", roomAccessCode);
+  const suffix = params.size ? `?${params.toString()}` : "";
   window.history.replaceState({}, "", room ? `/room/${encodeURIComponent(room)}${suffix}` : "/");
 }
 
@@ -215,6 +219,7 @@ async function joinRoom(room, mode = callMode) {
   }
 
   lobbyError.textContent = "";
+  roomAccessCode = $("accessCode").value.trim();
   setRoom(room, mode);
   $("chat-messages").replaceChildren();
   $("unread-badge").hidden = true;
@@ -256,6 +261,7 @@ async function joinRoom(room, mode = callMode) {
   callSession = new Session({
     roomId: room,
     displayName: name,
+    accessCode: roomAccessCode,
     localStream: stream,
     localVideo: $("localVideo"),
     onStatus: updateCallStatus,
@@ -665,7 +671,10 @@ async function leaveCall() {
 async function copyRoomLink() {
   if (!roomId) return;
   try {
-    const suffix = callMode === "conference" ? "?mode=conference" : "";
+    const params = new URLSearchParams();
+    if (callMode === "conference") params.set("mode", "conference");
+    if (roomAccessCode) params.set("accessCode", roomAccessCode);
+    const suffix = params.size ? `?${params.toString()}` : "";
     await navigator.clipboard.writeText(`${window.location.origin}/room/${encodeURIComponent(roomId)}${suffix}`);
     $("copyRoomLink").textContent = "Copied!";
     $("lobbyCopyLink").textContent = "Invite link copied";
@@ -680,14 +689,51 @@ async function copyRoomLink() {
   }
 }
 
-$("createMeeting").addEventListener("click", () => {
-  setRoom(createRoomCode(), "p2p");
-  lobbyError.textContent = "Meeting link ready. Share it, then join when you’re ready.";
-});
-$("createConference").addEventListener("click", () => {
-  setRoom(createRoomCode(), "conference");
-  lobbyError.textContent = "Conference link ready. Share it, then join when you’re ready.";
-});
+async function createProtectedRoom(mode) {
+  if (!$("createProtected").checked) {
+    setRoom(createRoomCode(), mode);
+    roomAccessCode = "";
+    setRoom(roomId, mode);
+    lobbyError.textContent = mode === "conference"
+      ? "Conference link ready. Share it, then join when you’re ready."
+      : "Meeting link ready. Share it, then join when you’re ready.";
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/rooms", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        setRoom(createRoomCode(), mode);
+        roomAccessCode = "";
+        setRoom(roomId, mode);
+        lobbyError.textContent = "Protected rooms are not enabled on this server. A normal meeting link was created instead.";
+        return;
+      }
+      lobbyError.textContent = `Could not create protected room (${response.status}).`;
+      return;
+    }
+    const created = await response.json();
+    if (!created.room || !created.accessCode) {
+      lobbyError.textContent = "Could not create protected room: the server returned an incomplete response.";
+      return;
+    }
+    roomAccessCode = created.accessCode;
+    $("accessCode").value = created.accessCode;
+    setRoom(created.room, mode);
+    lobbyError.textContent = "Protected meeting link ready. Share it, then join when you’re ready.";
+  } catch (error) {
+    lobbyError.textContent = `Could not create protected room: ${error.message}`;
+  }
+}
+
+$("createMeeting").addEventListener("click", () => createProtectedRoom("p2p"));
+$("createConference").addEventListener("click", () => createProtectedRoom("conference"));
 $("lobbyCopyLink").addEventListener("click", async () => {
   if (!roomId) {
     lobbyError.textContent = "Create a meeting first.";
@@ -832,7 +878,10 @@ displayNameInput.dispatchEvent(new Event("input"));
 if (window.matchMedia("(max-width: 767px)").matches) deviceSettings.open = false;
 roomId = roomFromLocation();
 if (roomId) {
-  callMode = new URLSearchParams(window.location.search).get("mode") === "conference" ? "conference" : "p2p";
+  const locationParams = new URLSearchParams(window.location.search);
+  roomAccessCode = (locationParams.get("accessCode") || "").trim();
+  $("accessCode").value = roomAccessCode;
+  callMode = locationParams.get("mode") === "conference" ? "conference" : "p2p";
   updateJoinModeButtons();
   roomCodeInput.value = roomId;
   $("room-label").textContent = `Room ${roomId}`;

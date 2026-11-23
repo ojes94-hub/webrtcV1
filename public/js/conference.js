@@ -5,6 +5,7 @@ export class ConferenceSession {
   constructor(options) {
     this.roomId = options.roomId;
     this.displayName = options.displayName;
+    this.accessCode = options.accessCode || "";
     this.localVideo = options.localVideo;
     this.localStream = options.localStream || null;
     this.onStatus = options.onStatus;
@@ -34,11 +35,22 @@ export class ConferenceSession {
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: this.roomId, username: this.displayName })
+      body: JSON.stringify({
+        room: this.roomId,
+        username: this.displayName,
+        ...(this.accessCode ? { accessCode: this.accessCode } : {})
+      })
     });
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || `Conference token request failed (${response.status})`);
+      let message = "";
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const body = await response.json().catch(() => ({}));
+        message = body.error || "";
+      } else {
+        message = (await response.text().catch(() => "")).trim();
+      }
+      throw new Error(message || `Conference token request failed (${response.status})`);
     }
     const { token, url } = await response.json();
     if (!token || !url) throw new Error("Conference token response is incomplete");

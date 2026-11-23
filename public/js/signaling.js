@@ -1,8 +1,9 @@
 export class RoomSignaling extends EventTarget {
-  constructor(roomId, displayName) {
+  constructor(roomId, displayName, accessCode = "") {
     super();
     this.roomId = roomId;
     this.displayName = displayName;
+    this.accessCode = accessCode;
     this.socket = null;
     this.retryTimer = null;
     this.retryCount = 0;
@@ -18,6 +19,7 @@ export class RoomSignaling extends EventTarget {
   openSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const query = new URLSearchParams({ room: this.roomId, name: this.displayName });
+    if (this.accessCode) query.set("accessCode", this.accessCode);
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws?${query}`);
     this.socket = socket;
     this.emit("state", { state: this.hasConnected ? "reconnecting" : "connecting" });

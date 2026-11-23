@@ -69,6 +69,10 @@
         <button id="createMeeting" class="button button-primary button-large" type="button">New 1-on-1 call</button>
         <button id="createConference" class="button button-secondary button-large" type="button">New conference</button>
       </div>
+      <label class="protected-option" for="createProtected">
+        <input id="createProtected" type="checkbox">
+        <span>Protect this room with an access code</span>
+      </label>
       <div class="divider"><span>or</span></div>
       <form id="joinForm" class="join-form">
         <label for="roomCode">Join with a room code</label>
@@ -79,6 +83,9 @@
             <button id="joinConference" class="button button-secondary" type="button">Join conference</button>
           </div>
         </div>
+        <label class="access-code-field" for="accessCode">Access code <span>(protected rooms only)</span>
+          <input id="accessCode" name="accessCode" autocomplete="off" placeholder="Enter access code">
+        </label>
       </form>
       <button id="lobbyCopyLink" class="button button-quiet copy-link" type="button" hidden>Copy invite link</button>
       <p id="lobby-error" class="error-message" role="alert"></p>

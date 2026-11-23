@@ -13,7 +13,7 @@ export class CallSession {
     this.onChat = options.onChat;
     this.onSpeaker = options.onSpeaker;
     this.localStream = options.localStream || null;
-    this.signaling = new RoomSignaling(this.roomId, this.displayName);
+    this.signaling = new RoomSignaling(this.roomId, this.displayName, options.accessCode || "");
     this.iceServers = null;
     this.clientId = "";
     this.participants = new Map();
