@@ -18,10 +18,11 @@ import (
 )
 
 type conferenceTokenRequest struct {
-	Room       string `json:"room"`
-	Username   string `json:"username"`
-	UserID     string `json:"userId,omitempty"`
-	AccessCode string `json:"accessCode,omitempty"`
+	Room       string          `json:"room"`
+	Username   string          `json:"username"`
+	UserID     string          `json:"userId,omitempty"`
+	AccessCode string          `json:"accessCode,omitempty"`
+	HostKey    json.RawMessage `json:"hostKey,omitempty"`
 }
 
 type conferenceTokenClaims struct {
@@ -33,6 +34,7 @@ type conferenceTokenClaims struct {
 	ExpiresAt int64                `json:"exp"`
 	TokenID   string               `json:"jti"`
 	Video     conferenceVideoGrant `json:"video"`
+	Metadata  string               `json:"metadata,omitempty"`
 }
 
 type conferenceVideoGrant struct {
@@ -90,6 +92,28 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hostMetadata := ""
+	hostState, hostStateErr := protectedRoomHostStateContext(r.Context(), input.Room)
+	if len(input.HostKey) > 0 {
+		var hostKey string
+		if json.Unmarshal(input.HostKey, &hostKey) != nil ||
+			hostStateErr != nil || !verifyStoredRoomHostKey(hostState, input.Room, hostKey) {
+			http.Error(w, "access denied", http.StatusForbidden)
+			return
+		}
+		if hostState.EndedAt.Valid {
+			http.Error(w, "meeting ended", http.StatusGone)
+			return
+		}
+		hostMetadata = `{"role":"host"}`
+	} else if hostStateErr != nil {
+		http.Error(w, "protected room service is unavailable", http.StatusServiceUnavailable)
+		return
+	} else if len(hostState.HostKeyHash) == 32 && hostState.EndedAt.Valid {
+		http.Error(w, "meeting ended", http.StatusGone)
+		return
+	}
+
 	apiKey := strings.TrimSpace(os.Getenv("LIVEKIT_API_KEY"))
 	apiSecret := strings.TrimSpace(os.Getenv("LIVEKIT_API_SECRET"))
 	livekitURL := strings.TrimSpace(os.Getenv("LIVEKIT_URL"))
@@ -98,7 +122,7 @@ func handleConferenceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := createConferenceToken(apiKey, apiSecret, input.Room, username, userID, time.Now())
+	token, err := createConferenceTokenWithMetadata(apiKey, apiSecret, input.Room, username, userID, hostMetadata, time.Now())
 	if err != nil {
 		http.Error(w, "could not create conference token", http.StatusInternalServerError)
 		return
@@ -114,6 +138,7 @@ func parseConferenceTokenRequest(r *http.Request) (conferenceTokenRequest, error
 			Username:   r.URL.Query().Get("username"),
 			UserID:     r.URL.Query().Get("userId"),
 			AccessCode: r.URL.Query().Get("accessCode"),
+			HostKey:    queryStringValue(r, "hostKey"),
 		}, nil
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
@@ -130,6 +155,19 @@ func parseConferenceTokenRequest(r *http.Request) (conferenceTokenRequest, error
 	return input, nil
 }
 
+func queryStringValue(r *http.Request, name string) json.RawMessage {
+	values, ok := r.URL.Query()[name]
+	if !ok {
+		return nil
+	}
+	value := ""
+	if len(values) > 0 {
+		value = values[0]
+	}
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
+
 func cleanConferenceUserID(userID string) (string, error) {
 	userID = strings.TrimSpace(userID)
 	if utf8.RuneCountInString(userID) > 128 {
@@ -144,6 +182,10 @@ func cleanConferenceUserID(userID string) (string, error) {
 }
 
 func createConferenceToken(apiKey, apiSecret, room, username, userID string, now time.Time) (string, error) {
+	return createConferenceTokenWithMetadata(apiKey, apiSecret, room, username, userID, "", now)
+}
+
+func createConferenceTokenWithMetadata(apiKey, apiSecret, room, username, userID, metadata string, now time.Time) (string, error) {
 	header, err := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	if err != nil {
 		return "", err
@@ -163,6 +205,7 @@ func createConferenceToken(apiKey, apiSecret, room, username, userID string, now
 			CanSubscribe:   true,
 			CanPublishData: true,
 		},
+		Metadata: metadata,
 	}
 	if claims.Subject == "" {
 		claims.Subject = uuid.NewString()

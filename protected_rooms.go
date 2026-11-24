@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/big"
@@ -66,43 +67,111 @@ func protectedRoomDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func createStoredProtectedRoom(ctx context.Context) (roomID, meetingID, password string, err error) {
+func createStoredProtectedRoom(ctx context.Context) (roomID, meetingID, password, hostKey string, err error) {
 	db, err := protectedRoomDB()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 
 	for attempt := 0; attempt < 10; attempt++ {
 		roomID, err = randomStoredProtectedRoomID()
 		if err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
 		}
 		meetingID, err = randomNumericCode(meetingIDDigits)
 		if err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
 		}
 		password, err = randomNumericCode(meetingPasswordDigits)
 		if err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
+		}
+		hostKey, err = randomHostKey()
+		if err != nil {
+			return "", "", "", "", err
 		}
 
 		result, insertErr := db.ExecContext(ctx, `
-			INSERT INTO protected_rooms (meeting_id, room_id, password_hash)
-			VALUES ($1, $2, $3)
+			INSERT INTO protected_rooms (meeting_id, room_id, password_hash, host_key_hash)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT DO NOTHING`,
-			meetingID, roomID, protectedRoomPasswordHash(roomID, password))
+			meetingID, roomID, protectedRoomPasswordHash(roomID, password), protectedRoomHostKeyHash(roomID, hostKey))
 		if insertErr != nil {
-			return "", "", "", insertErr
+			return "", "", "", "", insertErr
 		}
 		inserted, err := result.RowsAffected()
 		if err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
 		}
 		if inserted == 1 {
-			return roomID, meetingID, password, nil
+			return roomID, meetingID, password, hostKey, nil
 		}
 	}
-	return "", "", "", errors.New("could not allocate a unique meeting ID")
+	return "", "", "", "", errors.New("could not allocate a unique meeting ID")
+}
+
+func randomHostKey() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func protectedRoomHostKeyHash(roomID, hostKey string) []byte {
+	raw, err := base64.RawURLEncoding.DecodeString(hostKey)
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != hostKey {
+		raw = []byte(hostKey)
+	}
+	mac := hmac.New(sha256.New, roomAccessSecret())
+	_, _ = mac.Write([]byte("protected-room-host-key-v1\x00" + roomID + "\x00"))
+	_, _ = mac.Write(raw)
+	return mac.Sum(nil)
+}
+
+type storedRoomHostState struct {
+	HostKeyHash []byte
+	EndedAt     sql.NullTime
+}
+
+type roomHostStateQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func readStoredRoomHostState(ctx context.Context, queryer roomHostStateQuerier, roomID string, lock bool) (storedRoomHostState, error) {
+	query := "SELECT host_key_hash, ended_at FROM protected_rooms WHERE room_id = $1"
+	if lock {
+		query += " FOR UPDATE"
+	}
+	var state storedRoomHostState
+	err := queryer.QueryRowContext(ctx, query, roomID).Scan(&state.HostKeyHash, &state.EndedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storedRoomHostState{}, nil
+	}
+	return state, err
+}
+
+func protectedRoomHostStateContext(ctx context.Context, roomID string) (storedRoomHostState, error) {
+	if !validProtectedRoomV2ID(roomID) {
+		return storedRoomHostState{}, nil
+	}
+	db, err := protectedRoomDB()
+	if err != nil {
+		return storedRoomHostState{}, err
+	}
+	return readStoredRoomHostState(ctx, db, roomID, false)
+}
+
+func verifyStoredRoomHostKey(state storedRoomHostState, roomID, hostKey string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(hostKey)
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != hostKey {
+		return false
+	}
+	if len(state.HostKeyHash) != sha256.Size || hostKey == "" {
+		return false
+	}
+	expected := protectedRoomHostKeyHash(roomID, hostKey)
+	return subtle.ConstantTimeCompare(state.HostKeyHash, expected) == 1
 }
 
 func resolveStoredMeeting(ctx context.Context, meetingID, password string) (string, bool, error) {

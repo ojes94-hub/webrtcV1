@@ -109,15 +109,18 @@ var (
 	conferenceTokenLimiter = newRateLimiter(60, time.Minute)
 	roomCreateLimiter      = newRateLimiter(10, time.Minute)
 	roomAccessLimiter      = newRateLimiter(10, 15*time.Minute)
+	roomModerateLimiter    = newRateLimiter(60, time.Minute)
 )
 
 func syncRateLimiters() {
 	tokenLimit, tokenWindow := configuredRateLimit("CONFERENCE_TOKEN_RATE_LIMIT", "CONFERENCE_TOKEN_RATE_WINDOW_SECONDS", 60)
 	createLimit, createWindow := configuredRateLimit("ROOM_CREATE_RATE_LIMIT", "ROOM_CREATE_RATE_WINDOW_SECONDS", 10)
+	moderateLimit, moderateWindow := configuredRateLimit("ROOM_MODERATE_RATE_LIMIT", "ROOM_MODERATE_RATE_WINDOW_SECONDS", 60)
 	accessLimit, accessWindow := configuredRateLimitDefaults(
 		"ROOM_ACCESS_ATTEMPT_LIMIT", "ROOM_ACCESS_ATTEMPT_WINDOW_SECONDS", 10, 900,
 	)
 	config := strconv.Itoa(tokenLimit) + "/" + tokenWindow.String() + "/" + strconv.Itoa(createLimit) + "/" + createWindow.String() +
+		"/" + strconv.Itoa(moderateLimit) + "/" + moderateWindow.String() +
 		"/" + strconv.Itoa(accessLimit) + "/" + accessWindow.String()
 
 	rateLimitMu.Lock()
@@ -127,6 +130,7 @@ func syncRateLimiters() {
 	}
 	conferenceTokenLimiter = newRateLimiter(tokenLimit, tokenWindow)
 	roomCreateLimiter = newRateLimiter(createLimit, createWindow)
+	roomModerateLimiter = newRateLimiter(moderateLimit, moderateWindow)
 	roomAccessLimiter = newRateLimiter(accessLimit, accessWindow)
 	rateLimitConfig = config
 }
@@ -355,7 +359,7 @@ func handleRoomCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	roomID, meetingID, accessCode, err := createStoredProtectedRoom(ctx)
+	roomID, meetingID, accessCode, hostKey, err := createStoredProtectedRoom(ctx)
 	if err != nil {
 		http.Error(w, "protected room service is unavailable", http.StatusServiceUnavailable)
 		return
@@ -366,7 +370,8 @@ func handleRoomCreate(w http.ResponseWriter, r *http.Request) {
 		Room       string `json:"room"`
 		AccessCode string `json:"accessCode"`
 		MeetingID  string `json:"meetingId"`
-	}{Room: roomID, AccessCode: accessCode, MeetingID: meetingID})
+		HostKey    string `json:"hostKey"`
+	}{Room: roomID, AccessCode: accessCode, MeetingID: meetingID, HostKey: hostKey})
 }
 
 func handleRoomResolve(w http.ResponseWriter, r *http.Request) {

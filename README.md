@@ -42,6 +42,8 @@ go build -tags netgo -ldflags "-s -w" -o app .
 | `CONFERENCE_TOKEN_RATE_WINDOW_SECONDS` | No | Conference-token rate-limit window in seconds; defaults to `60`. |
 | `ROOM_CREATE_RATE_LIMIT` | No | Protected-room creation requests allowed per IP per window; defaults to `10`. |
 | `ROOM_CREATE_RATE_WINDOW_SECONDS` | No | Protected-room creation rate-limit window in seconds; defaults to `60`. |
+| `ROOM_MODERATE_RATE_LIMIT` | No | Host-moderation requests allowed per IP per window; defaults to `60`. |
+| `ROOM_MODERATE_RATE_WINDOW_SECONDS` | No | Host-moderation rate-limit window in seconds; defaults to `60`. |
 | `ROOM_ACCESS_ATTEMPT_LIMIT` | No | Protected-room access attempts allowed per IP; defaults to `10`. |
 | `ROOM_ACCESS_ATTEMPT_WINDOW_SECONDS` | No | Access-attempt window in seconds; defaults to `900`. |
 
@@ -78,8 +80,27 @@ Content-Type: application/json
 Response:
 
 ```json
-{"room":"pr2_<nonce>_<room-proof>","accessCode":"234567","meetingId":"7069567577"}
+{"room":"pr2_<nonce>_<room-proof>","accessCode":"234567","meetingId":"7069567577","hostKey":"<base64url-key>"}
 ```
+
+`hostKey` is a one-time secret for optional host controls. Keep it private and pass it only to the conference-token endpoint or moderation endpoint. The server stores only an HMAC-SHA256 hash of the key. Rooms created before migration 002, including older `pr1_` rooms, do not have a host.
+
+To issue a host participant token, include `hostKey` alongside the existing conference-token fields. The resulting participant token has host metadata; it does not receive LiveKit admin grants. Omitting `hostKey` keeps the existing participant-token claims unchanged. Supplying an invalid key is denied.
+
+The `GET /api/conference-token` form also accepts `hostKey` as a query parameter.
+
+Host moderation is available only for new protected rooms:
+
+```http
+POST /api/rooms/moderate
+Content-Type: application/json
+
+{"room":"pr2_<nonce>_<room-proof>","hostKey":"<base64url-key>","action":"mute","identity":"participant-identity"}
+```
+
+Actions are `mute` (mute the target participant's published microphone tracks), `mute_all` (mute microphone tracks for everyone except participants whose metadata marks them as host), `remove` (disconnect a participant), and `end` (delete the LiveKit room and persist the ended state). `identity` is required for `mute` and `remove` and ignored for other actions. The response is `{"ok":true,"affected":N}`; for mute actions, `affected` counts microphone tracks muted, and for remove/end it is `1`.
+
+The endpoint returns `403 access denied` for invalid host credentials or rooms without a host, `404 participant not found` when a mute/remove target is not in the room, `410 meeting ended` after a room has ended, and `429 too many requests` with `Retry-After` when rate limited. LiveKit must be configured; service failures return `502` or `503`. The server signs room-scoped admin requests that expire within 60 seconds and never sends LiveKit admin grants to participants.
 
 The protected room ID is still a valid `/room/{id}` URL. The web app places the password in the URL fragment (`/room/{id}#accessCode=234567`) so it is not sent as part of the page request; it also accepts the earlier `?accessCode=...` link format. Clients that cannot pass the password will be denied joining.
 
@@ -117,7 +138,7 @@ Statuses:
 
 | Endpoint | Status | Meaning |
 | --- | --- | --- |
-| `POST /api/rooms` | `200` | Protected room created; response shape is `{"room":"...","accessCode":"...","meetingId":"..."}`. |
+| `POST /api/rooms` | `200` | Protected room created; response adds `hostKey` to the existing room, access code, and meeting ID fields. |
 | `POST /api/rooms` | `400` | Invalid JSON or request. |
 | `POST /api/rooms` | `503` | `ROOM_ACCESS_SECRET`, database configuration, or the database is unavailable. |
 | `POST /api/rooms/resolve` | `200` | Meeting ID/password verified and mapped to the protected room. |
@@ -125,6 +146,13 @@ Statuses:
 | `POST /api/rooms/resolve` | `429` | Access-attempt limit reached; `Retry-After` is included. |
 | `/api/conference-token` | `403` | Protected room code is missing or wrong; body is plain text `access denied`. |
 | `/api/conference-token` | `429` | Per-IP abuse limit reached; `Retry-After` is included. |
+| `POST /api/rooms/moderate` | `200` | Action succeeded; returns `{"ok":true,"affected":N}`. |
+| `POST /api/rooms/moderate` | `400` | Invalid JSON, room, action, or required identity. |
+| `POST /api/rooms/moderate` | `403` | Host key is missing/invalid, or the room has no host. |
+| `POST /api/rooms/moderate` | `404` | The requested participant was not found. |
+| `POST /api/rooms/moderate` | `410` | A host-enabled room has already ended. |
+| `POST /api/rooms/moderate` | `429` | Per-IP moderation limit reached; `Retry-After` is included. |
+| `POST /api/rooms/moderate` | `502` / `503` | LiveKit is unreachable or not configured. |
 | `/ws` | `403` | Protected room code is missing or wrong. |
 | `/api/rooms` and `/api/conference-token` | `429` | Per-IP abuse limit reached; `Retry-After` is included. |
 
@@ -134,7 +162,7 @@ The server compares submitted codes in constant time. Unknown JSON fields remain
 
 1. Push the repository to GitHub and create a Render Web Service using the Docker runtime (or let Render apply [render.yaml](./render.yaml)).
 2. Set `TURN_URLS` and `TURN_SHARED_SECRET` for reliable peer-to-peer media on restrictive mobile/NAT networks. For conference rooms, also set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in the Render dashboard.
-3. Room protection is optional. Configure `DATABASE_URL` with the Neon pooled URL and set `ROOM_ACCESS_SECRET` to a high-entropy secret in Render. Keep the secret stable. Run `go run ./cmd/migrate` with `DATABASE_URL_UNPOOLED` before deploying the feature. The default limits are `60` conference-token requests and `10` room creations per IP per minute, plus `10` protected-room access attempts per IP per 15 minutes. Commented examples are available in [render.yaml](./render.yaml).
+3. Room protection is optional. Configure `DATABASE_URL` with the Neon pooled URL and set `ROOM_ACCESS_SECRET` to a high-entropy secret in Render. Keep the secret stable. Run `go run ./cmd/migrate` with `DATABASE_URL_UNPOOLED` before deploying the feature; the command applies migration 001 and the idempotent migration 002. The default limits are `60` conference-token requests, `60` moderation requests, and `10` room creations per IP per minute, plus `10` protected-room access attempts per IP per 15 minutes. Commented examples are available in [render.yaml](./render.yaml).
 3. Deploy. Render terminates HTTPS; the app serves plain HTTP internally and uses `wss:` from HTTPS pages.
 
 The service exposes `/healthz` for Render health checks. Room membership is held in process memory, so use one Render instance unless a shared signaling store is added. HTTPS signaling does not relay WebRTC media: without TURN, some networks will not establish a direct peer route.

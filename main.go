@@ -91,6 +91,7 @@ func newHandler() (http.Handler, error) {
 	mux.HandleFunc("/api/conference-token", handleConferenceToken)
 	mux.HandleFunc("/api/rooms", handleRoomCreate)
 	mux.HandleFunc("/api/rooms/resolve", handleRoomResolve)
+	mux.HandleFunc("/api/rooms/moderate", handleRoomModerate)
 	mux.Handle("/css/", fileServer)
 	mux.Handle("/js/", fileServer)
 	mux.Handle("/images/", fileServer)
